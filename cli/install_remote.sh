@@ -8,7 +8,7 @@ PREFIX="${1:-/usr/local}"
 BIN_DIR="$PREFIX/bin"
 RAW_URL="https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/shortener_cli"
 
-echo -e "\n  ✨ \033[1;36mTinyURL Complete Installer\033[0m\n"
+echo -e "\n   \033[1;36mTinyURL Complete Installer\033[0m\n"
 
 # 1. Check and Install Erlang automatically
 if ! command -v escript &>/dev/null; then

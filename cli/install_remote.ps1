@@ -11,7 +11,7 @@ $ErrorActionPreference = "Stop"
 $InstallDir = Join-Path $env:ProgramFiles "shortener-cli"
 $RawBaseUrl = "https://raw.githubusercontent.com/phravins/TinyURL01/main/cli"
 
-Write-Host "`n  ✨ TinyURL Complete Installer for Windows`n" -ForegroundColor Cyan
+Write-Host "`n  TinyURL Complete Installer for Windows`n" -ForegroundColor Cyan
 
 # 1. Check and Install Erlang
 if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {

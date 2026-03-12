@@ -195,7 +195,7 @@ rebar3 as prod tar
 
 ---
 
-## 💻 CLI — Command Line Interface
+##  CLI — Command Line Interface
 
 A full-featured CLI is included in `cli/` and works on **Windows, Linux, and macOS**.
 
