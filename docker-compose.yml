@@ -12,20 +12,30 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./apps/shortener_storage/priv/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   app:
     build: .
     ports:
       - "8080:8080"
+      - "9100-9200:9100-9200" # Distributed Erlang port range
     environment:
-      - DB_HOST=db
-      - DB_PORT=5432
-      - DB_USER=postgres
-      - DB_PASS=postgres
-      - DB_NAME=shortener
-      - PORT=8080
+      DB_HOST: db
+      DB_PORT: "5432"
+      DB_USER: postgres
+      DB_PASS: postgres
+      DB_NAME: shortener
+      PORT: "8080"
+      ADMIN_TOKEN: "change_me_in_production"
+      GEOIP_API_URL: "" # Optional: set to your private GeoIP service URL
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   postgres_data:
