@@ -1,6 +1,9 @@
-# install_remote.ps1 — 1-Liner Windows fully automated installer
-# Usage: iwr https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.ps1 -useb | iex
-# Must be run as Administrator
+# Check for Administrator privileges
+if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "`n  ❌ ERROR: This script MUST be run as Administrator.`n" -ForegroundColor Red
+    Write-Host "  Please right-click your Terminal/PowerShell and select 'Run as Administrator'.`n"
+    exit 1
+}
 
 $ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -14,13 +17,26 @@ Write-Host "`n  ✨ TinyURL Complete Installer for Windows`n" -ForegroundColor C
 if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
     Write-Host "  Erlang not found. Downloading and installing automatically..." -ForegroundColor Yellow
     
+    $ErlangInstalled = $false
+    
     # Try using Winget first
     if (Get-Command winget -ErrorAction SilentlyContinue) {
-        Write-Host "  Using Winget to install Erlang..." -ForegroundColor DarkGray
-        winget install Erlang.Erlang --silent --accept-package-agreements --accept-source-agreements
-    } else {
+        $WingetIds = @("Ericsson.Erlang", "Erlang.Erlang")
+        foreach ($id in $WingetIds) {
+            try {
+                Write-Host "  Trying Winget to install $id..." -ForegroundColor DarkGray
+                winget install $id --silent --accept-package-agreements --accept-source-agreements --no-upgrade
+                $ErlangInstalled = $true
+                break
+            } catch {
+                Write-Host "  Winget failed for $id, trying next..." -ForegroundColor DarkGray
+            }
+        }
+    }
+    
+    if (-not $ErlangInstalled) {
         # Fallback: Direct download and install
-        Write-Host "  Winget not found. Downloading OTP installer directly (this may take a minute)..." -ForegroundColor DarkGray
+        Write-Host "  Attempting direct download (this may take a minute)..." -ForegroundColor DarkGray
         $InstallerUrl = "https://github.com/erlang/otp/releases/download/OTP-26.2.3/otp_win64_26.2.3.exe"
         $InstallerPath = Join-Path $env:TEMP "erlang_installer.exe"
         Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing
@@ -41,6 +57,7 @@ if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
 } else {
     Write-Host "  ✓ Erlang is already installed." -ForegroundColor Green
 }
+
 
 # 2. Add Erlang to PATH just in case it was installed but not refreshed
 $ErlangPath = "C:\Program Files\erl*\bin"
