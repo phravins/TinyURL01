@@ -199,32 +199,18 @@ rebar3 as prod tar
 
 A full-featured CLI is included in `cli/` and works on **Windows, Linux, and macOS**.
 
-### Prerequisites
+### Zero-Dependency Install
 
-Erlang ≥ 26 must be on your `PATH`. Then:
-
-| OS | Install |
-|---|---|
-| macOS | `brew install erlang` |
-| Ubuntu | `sudo apt-get install erlang` |
-| Fedora | `sudo dnf install erlang` |
-| Windows | [erlang.org/downloads](https://www.erlang.org/downloads) |
-
-### Install
+These 1-liner commands will **automatically download and configure everything**, including the Erlang runtime environment (via `apt`, `brew`, `dnf`, or `winget`), meaning there are **zero manual prerequisites`.
 
 **Linux / macOS:**
 ```bash
-bash cli/install.sh
+curl -fsSL https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.sh | bash
 ```
 
-**Windows (Admin cmd):**
-```bat
-cli\install.bat
-```
-
-**Windows (PowerShell, no install):**
+**Windows (PowerShell Administrator):**
 ```powershell
-.\cli\shortener.ps1 shorten https://example.com
+iwr https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.ps1 -useb | iex
 ```
 
 ### Configure

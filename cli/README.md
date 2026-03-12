@@ -7,20 +7,15 @@ Works on **Windows**, **Linux**, and **macOS** — powered by Erlang escript.
 
 ## Requirements
 
-- **Erlang** (≥ 26) must be installed and on your `PATH`.
-
-| OS | Install Command |
-|---|---|
-| macOS | `brew install erlang` |
-| Ubuntu/Debian | `sudo apt-get install erlang` |
-| Fedora/RHEL | `sudo dnf install erlang` |
-| Windows | [Download installer](https://www.erlang.org/downloads) |
+Just an internet connection! The installation scripts below will **automatically download and configure everything**, including the Erlang runtime environment, with zero manual prerequisites required.
 
 ---
 
-## Installation
+## Zero-Dependency 1-Liner Installation
 
 ### Linux / macOS
+
+Automatically uses `apt-get`, `brew`, `dnf`, or `pacman` behind the scenes:
 
 ```bash
 cd <project_root>/cli
