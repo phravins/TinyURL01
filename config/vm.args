@@ -1,4 +1,20 @@
+## Shortener Node — VM Args
+## Enables distributed Erlang for multi-node cache invalidation
+
+## Long names for distributed mode (change to -name if on a real network)
 -sname shortener
--setcookie shortener_cookie
+-setcookie shortener_secret_cookie
+
+## Async threads and kernel poll for high concurrency
 +K true
-+A30
++A 64
+
+## Increase max ports for high-connection scenarios
++Q 65536
+
+## SMP scheduler
++SSub true
+
+## Allows remote shell connection
+-kernel inet_dist_listen_min 9100
+-kernel inet_dist_listen_max 9200
