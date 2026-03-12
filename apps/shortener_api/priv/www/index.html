@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyURL — Lightning Fast Links</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+    <div class="blob blob-1"></div>
+    <div class="blob blob-2"></div>
+
+    <main class="container">
+        
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path d="M10 13A5 5 0 0 0 17.54 9.54l1.3-1.3A7.001 7.001 0 0 0 8.96 17.54l1.3-1.3A4.981 4.981 0 0 0 10 13zM14 11a5 5 0 0 0-7.54 3.46l-1.3 1.3A7.001 7.001 0 0 0 15.04 6.46l-1.3 1.3A4.981 4.981 0 0 0 14 11z" fill="url(#grad)"/>
+                    <defs>
+                        <linearGradient id="grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#38bdf8" />
+                            <stop offset="100%" stop-color="#818cf8" />
+                        </linearGradient>
+                    </defs>
+                </svg>
+                <span>TinyURL</span>
+            </div>
+            <nav>
+                <button id="nav-stats" class="nav-link">Check Stats</button>
+            </nav>
+        </header>
+
+        <!-- Main Shortener View -->
+        <section id="view-shorten" class="glass-card active">
+            <h1 class="hero-title">Shorten your links.<br><span class="gradient-text">Share the world.</span></h1>
+            <p class="hero-subtitle">A lightning-fast, secure, and modern URL shortener powered by Erlang.</p>
+
+            <form id="shorten-form" class="shorten-form">
+                <div class="input-group main-input">
+                    <input type="url" id="url-input" placeholder="https://very-long-url.com/something" required autocomplete="off">
+                    <button type="submit" id="btn-shorten" class="btn-primary">
+                        <span>Shorten</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg>
+                    </button>
+                </div>
+
+                <div class="advanced-toggle" id="btn-toggle-options">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                    Advanced Options
+                </div>
+
+                <div id="advanced-options" class="advanced-options hidden">
+                    <div class="options-grid">
+                        <div class="input-group">
+                            <label>Custom Alias</label>
+                            <input type="text" id="custom-code" placeholder="my-brand">
+                        </div>
+                        <div class="input-group">
+                            <label>Password Protect</label>
+                            <input type="password" id="password" placeholder="Leave blank for none">
+                        </div>
+                        <div class="input-group">
+                            <label>Expires In (Seconds)</label>
+                            <input type="number" id="ttl" placeholder="e.g. 86400 (24h)">
+                        </div>
+                        <div class="input-group">
+                            <label>Webhook URL (On Click)</label>
+                            <input type="url" id="webhook-url" placeholder="https://zapier.com/...">
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+            <div id="result-container" class="result-container hidden">
+                <div class="result-box">
+                    <div class="result-url">
+                        <a href="#" id="short-link" target="_blank">http://localhost:8080/xyz</a>
+                    </div>
+                    <div class="result-actions">
+                        <button id="btn-copy" class="btn-icon" title="Copy">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <button id="btn-qr" class="btn-icon" title="View QR">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="success-msg">Copied to clipboard!</div>
+            </div>
+            
+            <div id="error-container" class="error-msg hidden"></div>
+        </section>
+
+        <!-- Stats View -->
+        <section id="view-stats" class="glass-card hidden">
+            <div class="view-header">
+                <h2>Link Analytics</h2>
+                <button id="btn-back" class="btn-link">← Back to Shorten</button>
+            </div>
+
+            <form id="stats-form" class="shorten-form">
+                <div class="input-group main-input">
+                    <input type="text" id="stats-code" placeholder="Enter short code (e.g., Ab3k9Q)" required autocomplete="off">
+                    <button type="submit" class="btn-primary">View Stats</button>
+                </div>
+            </form>
+
+            <div id="stats-result" class="stats-result hidden">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <span class="stat-label">Total Clicks</span>
+                        <span class="stat-value gradient-text" id="stat-clicks">0</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Created At</span>
+                        <span class="stat-value" id="stat-created">-</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-label">Expires At</span>
+                        <span class="stat-value" id="stat-expires">Never</span>
+                    </div>
+                </div>
+                <div class="stat-long-url">
+                    <span class="stat-label">Destination</span>
+                    <a href="#" id="stat-dest" target="_blank">-</a>
+                </div>
+            </div>
+            
+            <div id="stats-error" class="error-msg hidden"></div>
+        </section>
+
+    </main>
+
+    <!-- QR Modal -->
+    <div id="qr-modal" class="modal hidden">
+        <div class="modal-content glass-card">
+            <span class="close-modal">&times;</span>
+            <h3>QR Code</h3>
+            <img id="qr-image" src="" alt="QR Code" class="qr-image">
+            <p id="qr-link" class="modal-link"></p>
+        </div>
+    </div>
+
+    <!-- CLI Instructions Footer -->
+    <footer class="footer">
+        <div class="cli-box">
+            <span>Terminal user? Get the CLI:</span>
+            <code>curl -fsSL https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.sh | bash</code>
+        </div>
+    </footer>
+
+    <script src="/app.js"></script>
+</body>
+</html>

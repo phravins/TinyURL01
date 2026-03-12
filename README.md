@@ -21,6 +21,7 @@ A **production-ready, feature-rich URL shortener** built with Erlang/OTP, Cowboy
 | 🌐 **Distributed Erlang** | Cache invalidation broadcast across nodes via `pg` process groups |
 | ⚡ **ETS Cache-Aside** | In-memory ETS cache backing every redirect (sub-ms lookups) |
 | 💻 **Cross-Platform CLI** | Full-featured CLI for Windows, Linux, and macOS |
+| 🎨 **Elegant Web UI** | Glassmorphism SPA served directly from Erlang (no Node.js needed) |
 
 ---
 
