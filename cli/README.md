@@ -115,6 +115,15 @@ shortener qr Ab3k9Q
 shortener web
 ```
 
+### Run WebMock Server (UI Testing)
+
+Launch a local mock server and open the UI in a browser without needing Docker/PostgreSQL:
+
+```bash
+# MUST be run from the project root directory!
+shortener webmock
+```
+
 ### Admin Commands
 
 ```bash

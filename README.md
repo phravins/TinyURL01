@@ -257,6 +257,9 @@ shortener qr Ab3k9Q
 # Open Web UI
 shortener web
 
+# Run UI Testing Mock Server (Must be run from project root)
+shortener webmock
+
 # Admin
 shortener admin stats
 shortener admin list --page 1 --limit 20

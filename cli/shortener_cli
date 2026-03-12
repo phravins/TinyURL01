@@ -17,6 +17,7 @@
 %%   shortener config set --host HOST --port PORT [--token TOKEN]
 %%   shortener config show
 %%   shortener web
+%%   shortener webmock
 %%
 -mode(compile).
 
@@ -180,6 +181,19 @@ main(["web"]) ->
     Url = base_url(Cfg),
     io:format("~n  Opening Web UI at ~s ...~n~n", [Url]),
     open_browser(Url);
+
+%% ---- Open Mock Web Server ----
+main(["webmock"]) ->
+    case filelib:is_file("mock_server.py") of
+        true ->
+            io:format("~n  Starting WebMock Server on port 8000...~n"),
+            io:format("  (Press Ctrl+C to stop the server)~n~n"),
+            open_browser("http://localhost:8000"),
+            os:cmd("python mock_server.py");
+        false ->
+            io:format("~n  Error: mock_server.py not found.~n"),
+            io:format("  Please run this command from the project root directory.~n~n")
+    end;
 
 main(Args) ->
     io:format("~nUnknown command: ~s~n", [string:join(Args, " ")]),
@@ -482,6 +496,7 @@ print_help() ->
     io:format("    config set --host HOST --port PORT [--token TOKEN]~n"),
     io:format("    config show~n"),
     io:format("    web~n"),
+    io:format("    webmock~n"),
     io:format("  ─────────────────────────────────────────────────────~n"),
     io:format("  Config file: ~~~/.shortener.conf~n~n").
 
