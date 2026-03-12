@@ -6,18 +6,26 @@
 start(_StartType, _StartArgs) ->
     Dispatch = cowboy_router:compile([
         {'_', [
+            %% --- Static Web UI ---
+            {"/", cowboy_static, {priv_file, shortener_api, "www/index.html"}},
+            {"/styles.css", cowboy_static, {priv_file, shortener_api, "www/styles.css"}},
+            {"/app.js", cowboy_static, {priv_file, shortener_api, "www/app.js"}},
+            
             %% --- Core Endpoints ---
             {"/api/shorten",             shortener_handler_shorten,  []},
             {"/api/stats/:code",         shortener_handler_stats,    []},
+            
             %% --- Advanced Endpoints ---
             {"/api/qr/:code",            shortener_handler_qr,       []},
             {"/api/preview/:code",       shortener_handler_preview,  []},
             {"/api/unlock/:code",        shortener_handler_unlock,   []},
+            
             %% --- Admin Endpoints ---
             {"/api/admin/stats",         shortener_handler_admin,    []},
             {"/api/admin/urls",          shortener_handler_admin,    []},
             {"/api/admin/urls/:code",    shortener_handler_admin,    []},
             {"/api/admin/analytics/:code", shortener_handler_admin,  []},
+            
             %% --- Redirect (catch-all, must be last) ---
             {"/:code",                   shortener_handler_redirect, []}
         ]}
