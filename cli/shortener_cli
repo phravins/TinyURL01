@@ -1,0 +1,477 @@
+#!/usr/bin/env escript
+%% -*- erlang -*-
+%%
+%% shortener_cli — Cross-platform CLI for the URL Shortener
+%% Works on Windows, Linux, and macOS anywhere Erlang is installed.
+%%
+%% Usage:
+%%   shortener shorten <url> [--custom CODE] [--ttl SECONDS] [--password PWD] [--webhook URL]
+%%   shortener bulk <url1> <url2> ...
+%%   shortener stats <code>
+%%   shortener preview <code>
+%%   shortener qr <code>
+%%   shortener admin stats
+%%   shortener admin list [--page N] [--limit N]
+%%   shortener admin delete <code>
+%%   shortener admin analytics <code>
+%%   shortener config set --host HOST --port PORT [--token TOKEN]
+%%   shortener config show
+%%
+-mode(compile).
+
+main([]) ->
+    print_help(),
+    halt(0);
+main(["help" | _]) ->
+    print_help(),
+    halt(0);
+
+%% ---- Config ----
+main(["config", "set" | Args]) ->
+    Cfg = parse_config_flags(Args, default_config()),
+    save_config(Cfg),
+    ok_msg("Configuration saved: ~s:~w", [maps:get(host, Cfg), maps:get(port, Cfg)]);
+
+main(["config", "show"]) ->
+    Cfg = load_config(),
+    io:format("Host  : ~s~n", [maps:get(host, Cfg)]),
+    io:format("Port  : ~w~n", [maps:get(port, Cfg)]),
+    io:format("Token : ~s~n", [maps:get(token, Cfg)]);
+
+%% ---- Shorten ----
+main(["shorten", Url | Opts]) ->
+    Cfg   = load_config(),
+    Flags = parse_shorten_flags(Opts),
+    Body  = build_shorten_body(Url, Flags),
+    case post(Cfg, "/api/shorten", Body) of
+        {ok, #{<<"short_url">> := Short} = Resp} ->
+            io:format("~n  Short URL : ~ts~n", [Short]),
+            print_field("Expires",   maps:get(<<"expires_at">>, Resp, null)),
+            print_field("Protected", maps:get(<<"protected">>,  Resp, false)),
+            io:format("~n");
+        {error, Msg} ->
+            err_msg(Msg)
+    end;
+
+%% ---- Bulk ----
+main(["bulk" | Urls]) when Urls =/= [] ->
+    Cfg  = load_config(),
+    Body = jsone_encode(#{<<"urls">> => [list_to_binary(U) || U <- Urls]}),
+    case post(Cfg, "/api/shorten", Body) of
+        {ok, #{<<"results">> := Results}} ->
+            io:format("~n"),
+            lists:foreach(fun(R) ->
+                Url   = maps:get(<<"url">>, R, <<"?">>),
+                Short = maps:get(<<"short_url">>, R, null),
+                Err   = maps:get(<<"error">>, R, null),
+                case Short of
+                    null -> io:format("  ✗  ~ts  →  ~ts~n", [Url, Err]);
+                    _    -> io:format("  ✓  ~ts  →  ~ts~n", [Url, Short])
+                end
+            end, Results),
+            io:format("~n");
+        {error, Msg} ->
+            err_msg(Msg)
+    end;
+
+%% ---- Stats ----
+main(["stats", Code]) ->
+    Cfg = load_config(),
+    case get_req(Cfg, "/api/stats/" ++ Code) of
+        {ok, R} ->
+            io:format("~n  Short Code  : ~ts~n", [maps:get(<<"short_code">>, R, <<"?">>)]),
+            io:format("  Long URL    : ~ts~n",   [maps:get(<<"long_url">>,   R, <<"?">>)]),
+            io:format("  Clicks      : ~w~n",    [maps:get(<<"click_count">>,R, 0)]),
+            io:format("  Created     : ~ts~n",   [fmt_field(maps:get(<<"created_at">>, R, null))]),
+            io:format("  Expires     : ~ts~n",   [fmt_field(maps:get(<<"expires_at">>, R, null))]),
+            io:format("  Custom      : ~ts~n~n", [fmt_field(maps:get(<<"is_custom">>,  R, false))]);
+        {error, Msg} -> err_msg(Msg)
+    end;
+
+%% ---- Preview ----
+main(["preview", Code]) ->
+    Cfg = load_config(),
+    case get_req(Cfg, "/api/preview/" ++ Code) of
+        {ok, R} ->
+            io:format("~n  Title       : ~ts~n", [maps:get(<<"title">>,       R, <<>>)]),
+            io:format("  Description : ~ts~n",   [maps:get(<<"description">>, R, <<>>)]),
+            io:format("  OG Image    : ~ts~n",   [maps:get(<<"og_image">>,    R, <<>>)]),
+            io:format("  Long URL    : ~ts~n",   [maps:get(<<"long_url">>,    R, <<>>)]),
+            io:format("  Clicks      : ~w~n~n",  [maps:get(<<"click_count">>, R, 0)]);
+        {error, Msg} -> err_msg(Msg)
+    end;
+
+%% ---- QR Code ----
+main(["qr", Code]) ->
+    Cfg = load_config(),
+    QrUrl = base_url(Cfg) ++ "/api/qr/" ++ Code,
+    io:format("~n  QR Code URL : ~ts~n~n", [QrUrl]),
+    io:format("  Open the above URL in a browser to view your QR code.~n~n");
+
+%% ---- Admin Stats ----
+main(["admin", "stats"]) ->
+    Cfg = load_config(),
+    case admin_get(Cfg, "/api/admin/stats") of
+        {ok, R} ->
+            io:format("~n  Total URLs    : ~w~n",   [maps:get(<<"total_urls">>,    R, 0)]),
+            io:format("  Total Clicks  : ~w~n",     [maps:get(<<"total_clicks">>,  R, 0)]),
+            io:format("  New Today     : ~w~n",     [maps:get(<<"new_today">>,     R, 0)]),
+            io:format("  Top Short Code: ~ts~n~n",  [maps:get(<<"top_short_code">>,R, <<>>)]);
+        {error, Msg} -> err_msg(Msg)
+    end;
+
+%% ---- Admin List ----
+main(["admin", "list" | Opts]) ->
+    Cfg   = load_config(),
+    Flags = parse_page_flags(Opts),
+    Page  = maps:get(page,  Flags, 1),
+    Limit = maps:get(limit, Flags, 10),
+    Path  = io_lib:format("/api/admin/urls?page=~w&limit=~w", [Page, Limit]),
+    case admin_get(Cfg, lists:flatten(Path)) of
+        {ok, #{<<"urls">> := Urls}} ->
+            io:format("~n  Page ~w | ~w results~n~n", [Page, length(Urls)]),
+            io:format("  ~-12s  ~-30s  ~-8s  ~s~n",
+                      ["Code", "Long URL", "Clicks", "Expires"]),
+            io:format("  ~s~n", [string:copies("-", 70)]),
+            lists:foreach(fun(U) ->
+                Code    = maps:get(<<"short_code">>,  U, <<>>),
+                Long    = truncate(maps:get(<<"long_url">>,    U, <<>>), 30),
+                Clicks  = maps:get(<<"click_count">>, U, 0),
+                Expires = fmt_field(maps:get(<<"expires_at">>, U, null)),
+                io:format("  ~-12ts  ~-30ts  ~-8w  ~ts~n", [Code, Long, Clicks, Expires])
+            end, Urls),
+            io:format("~n");
+        {error, Msg} -> err_msg(Msg)
+    end;
+
+%% ---- Admin Delete ----
+main(["admin", "delete", Code]) ->
+    Cfg = load_config(),
+    case admin_delete(Cfg, "/api/admin/urls/" ++ Code) of
+        {ok, _} ->
+            ok_msg("Deleted: ~s", [Code]);
+        {error, Msg} ->
+            err_msg(Msg)
+    end;
+
+%% ---- Admin Analytics ----
+main(["admin", "analytics", Code]) ->
+    Cfg = load_config(),
+    case admin_get(Cfg, "/api/admin/analytics/" ++ Code) of
+        {ok, #{<<"events">> := Events}} ->
+            io:format("~n  Last ~w click events for: ~s~n~n", [length(Events), Code]),
+            io:format("  ~-15s  ~-5s  ~-15s  ~s~n", ["IP", "CC", "City", "Clicked At"]),
+            io:format("  ~s~n", [string:copies("-", 60)]),
+            lists:foreach(fun(E) ->
+                IP      = maps:get(<<"ip">>,         E, <<>>),
+                Country = maps:get(<<"country">>,    E, <<>>),
+                City    = maps:get(<<"city">>,       E, <<>>),
+                At      = maps:get(<<"clicked_at">>, E, <<>>),
+                io:format("  ~-15ts  ~-5ts  ~-15ts  ~ts~n", [IP, Country, City, At])
+            end, Events),
+            io:format("~n");
+        {error, Msg} -> err_msg(Msg)
+    end;
+
+main(Args) ->
+    io:format("~nUnknown command: ~s~n", [string:join(Args, " ")]),
+    print_help(),
+    halt(1).
+
+%% =============================================================================
+%% HTTP Helpers
+%% =============================================================================
+
+post(Cfg, Path, Body) ->
+    Url = base_url(Cfg) ++ Path,
+    Headers = [{"Content-Type", "application/json"}],
+    http_req(post, Url, Headers, Body).
+
+get_req(Cfg, Path) ->
+    Url = base_url(Cfg) ++ Path,
+    http_req(get, Url, [], "").
+
+admin_get(Cfg, Path) ->
+    Url = base_url(Cfg) ++ Path,
+    Token = maps:get(token, Cfg, ""),
+    Headers = [{"X-Admin-Token", Token}],
+    http_req(get, Url, Headers, "").
+
+admin_delete(Cfg, Path) ->
+    Url = base_url(Cfg) ++ Path,
+    Token = maps:get(token, Cfg, ""),
+    Headers = [{"X-Admin-Token", Token}],
+    http_req(delete, Url, Headers, "").
+
+http_req(Method, Url, Headers, Body) ->
+    inets:start(),
+    ssl:start(),
+    Request = case Method of
+        get    -> {Url, Headers};
+        delete -> {Url, Headers};
+        post   -> {Url, Headers, "application/json", Body}
+    end,
+    Opts = [{timeout, 10000}, {connect_timeout, 5000}],
+    case httpc:request(Method, Request, Opts, []) of
+        {ok, {{_, Status, _}, _, RespBody}} ->
+            case jsone_decode(list_to_binary(RespBody)) of
+                {ok, Decoded} ->
+                    if Status >= 200, Status < 300 -> {ok, Decoded};
+                       Status =:= 429 -> {error, "Rate limited — slow down"};
+                       Status =:= 401 -> {error, "Unauthorized — set token via: shortener config set --token TOKEN"};
+                       Status =:= 403 -> {error, "Forbidden — wrong password"};
+                       Status =:= 404 -> {error, "Not found"};
+                       true ->
+                            Err = maps:get(<<"error">>, Decoded, <<"Unknown error">>),
+                            {error, binary_to_list(Err)}
+                    end;
+                {error, _} ->
+                    {error, "Invalid response from server"}
+            end;
+        {error, {failed_connect, _}} ->
+            Cfg = load_config(),
+            {error, "Cannot connect to " ++ base_url(Cfg) ++ " — is the server running?"};
+        {error, Reason} ->
+            {error, io_lib:format("HTTP error: ~p", [Reason])}
+    end.
+
+%% =============================================================================
+%% JSON Helpers (self-contained, no dep on jsone)
+%% =============================================================================
+
+jsone_decode(Bin) ->
+    try
+        %% Use jsone if compiled into escript, else fall back to basic parsing
+        case code:ensure_loaded(jsone) of
+            {module, jsone} -> {ok, jsone:decode(Bin)};
+            _               -> simple_json_decode(Bin)
+        end
+    catch _:_ ->
+        simple_json_decode(Bin)
+    end.
+
+jsone_encode(Map) ->
+    case code:ensure_loaded(jsone) of
+        {module, jsone} -> binary_to_list(jsone:encode(Map));
+        _               -> simple_json_encode(Map)
+    end.
+
+%% Minimal JSON decoder for simple flat objects (covers all server responses)
+simple_json_decode(Bin) ->
+    try
+        Str = binary_to_list(Bin),
+        %% Parse using Erlang term evaluation trick on well-known patterns
+        {ok, parse_json_object(string:trim(Str))}
+    catch _:_ ->
+        {error, bad_json}
+    end.
+
+parse_json_object("{" ++ Rest) ->
+    parse_pairs(Rest, #{});
+parse_json_object("[" ++ Rest) ->
+    parse_array(Rest, []);
+parse_json_object("\"" ++ Rest) ->
+    {Val, _} = parse_string(Rest),
+    Val;
+parse_json_object("null" ++ _) -> null;
+parse_json_object("true" ++ _) -> true;
+parse_json_object("false" ++ _) -> false;
+parse_json_object(S) ->
+    {match, [N]} = re:run(S, "^-?[0-9]+", [{capture, all, list}]),
+    list_to_integer(N).
+
+parse_pairs("}" ++ _, Map) -> Map;
+parse_pairs(S, Map) ->
+    S1 = skip_ws(S),
+    {Key, S2} = case S1 of
+        "\"" ++ R -> parse_string(R);
+        _ -> {<<"">>, S1}
+    end,
+    S3 = skip_ws(skip_char($:, skip_ws(S2))),
+    {Val, S4} = parse_value(S3),
+    S5 = skip_ws(skip_optional_comma(S4)),
+    parse_pairs(S5, Map#{Key => Val}).
+
+parse_array("]" ++ _, Acc) -> lists:reverse(Acc);
+parse_array(S, Acc) ->
+    S1 = skip_ws(S),
+    {Val, S2} = parse_value(S1),
+    S3 = skip_ws(skip_optional_comma(S2)),
+    parse_array(S3, [Val | Acc]).
+
+parse_value("\"" ++ R) -> parse_string(R);
+parse_value("{" ++ R)  -> M = parse_pairs(R, #{}), {M, ""};
+parse_value("[" ++ R)  -> A = parse_array(R, []), {A, ""};
+parse_value("null" ++ R) -> {null, R};
+parse_value("true" ++ R) -> {true, R};
+parse_value("false" ++ R) -> {false, R};
+parse_value(S) ->
+    {match, [{0, L}]} = re:run(S, "^-?[0-9]+", [{capture, first, index}]),
+    {list_to_integer(string:substr(S, 1, L)), string:substr(S, L+1)}.
+
+parse_string(S) -> parse_string(S, []).
+parse_string("\"" ++ R, Acc) -> {list_to_binary(lists:reverse(Acc)), R};
+parse_string("\\" ++ [C | R], Acc) -> parse_string(R, [C | Acc]);
+parse_string([C | R], Acc) -> parse_string(R, [C | Acc]).
+
+skip_ws([$ |R]) -> skip_ws(R);
+skip_ws([$\n|R]) -> skip_ws(R);
+skip_ws([$\r|R]) -> skip_ws(R);
+skip_ws([$\t|R]) -> skip_ws(R);
+skip_ws(S) -> S.
+
+skip_char(C, [C|R]) -> R;
+skip_char(_, S) -> S.
+
+skip_optional_comma([$,|R]) -> R;
+skip_optional_comma(S) -> S.
+
+simple_json_encode(Map) when is_map(Map) ->
+    Pairs = maps:fold(fun(K, V, Acc) ->
+        KStr = io_lib:format("\"~ts\"", [K]),
+        [KStr ++ ": " ++ simple_json_encode(V) | Acc]
+    end, [], Map),
+    "{" ++ string:join(Pairs, ", ") ++ "}";
+simple_json_encode(List) when is_list(List) ->
+    Items = [simple_json_encode(I) || I <- List],
+    "[" ++ string:join(Items, ", ") ++ "]";
+simple_json_encode(B) when is_binary(B) ->
+    "\"" ++ binary_to_list(B) ++ "\"";
+simple_json_encode(I) when is_integer(I) ->
+    integer_to_list(I);
+simple_json_encode(true)  -> "true";
+simple_json_encode(false) -> "false";
+simple_json_encode(null)  -> "null".
+
+%% =============================================================================
+%% Config File
+%% =============================================================================
+
+config_path() ->
+    Home = case os:getenv("HOME") of
+        false -> case os:getenv("USERPROFILE") of
+                     false -> ".";
+                     P -> P
+                 end;
+        H -> H
+    end,
+    filename:join(Home, ".shortener.conf").
+
+default_config() ->
+    #{host => "localhost", port => 8080, token => "change_me_in_production"}.
+
+load_config() ->
+    Path = config_path(),
+    case file:consult(Path) of
+        {ok, [Terms]} ->
+            Host  = proplists:get_value(host,  Terms, "localhost"),
+            Port  = proplists:get_value(port,  Terms, 8080),
+            Token = proplists:get_value(token, Terms, "change_me_in_production"),
+            #{host => Host, port => Port, token => Token};
+        _ ->
+            default_config()
+    end.
+
+save_config(#{host := Host, port := Port, token := Token}) ->
+    Terms = io_lib:format("[{host, ~p}, {port, ~w}, {token, ~p}].~n",
+                          [Host, Port, Token]),
+    file:write_file(config_path(), Terms).
+
+parse_config_flags([], Cfg) -> Cfg;
+parse_config_flags(["--host", H | R], Cfg) -> parse_config_flags(R, Cfg#{host => H});
+parse_config_flags(["--port", P | R], Cfg) -> parse_config_flags(R, Cfg#{port => list_to_integer(P)});
+parse_config_flags(["--token", T | R], Cfg) -> parse_config_flags(R, Cfg#{token => T});
+parse_config_flags([_ | R], Cfg) -> parse_config_flags(R, Cfg).
+
+%% =============================================================================
+%% Flag Parsers
+%% =============================================================================
+
+parse_shorten_flags(Args) ->
+    parse_shorten_flags(Args, #{}).
+
+parse_shorten_flags([], Acc) -> Acc;
+parse_shorten_flags(["--custom",  V | R], Acc) -> parse_shorten_flags(R, Acc#{custom_code => V});
+parse_shorten_flags(["--ttl",     V | R], Acc) -> parse_shorten_flags(R, Acc#{ttl => list_to_integer(V)});
+parse_shorten_flags(["--password",V | R], Acc) -> parse_shorten_flags(R, Acc#{password => V});
+parse_shorten_flags(["--webhook", V | R], Acc) -> parse_shorten_flags(R, Acc#{webhook_url => V});
+parse_shorten_flags([_ | R], Acc) -> parse_shorten_flags(R, Acc).
+
+parse_page_flags(Args) ->
+    parse_page_flags(Args, #{}).
+parse_page_flags([], Acc) -> Acc;
+parse_page_flags(["--page",  V | R], Acc) -> parse_page_flags(R, Acc#{page  => list_to_integer(V)});
+parse_page_flags(["--limit", V | R], Acc) -> parse_page_flags(R, Acc#{limit => list_to_integer(V)});
+parse_page_flags([_ | R], Acc) -> parse_page_flags(R, Acc).
+
+build_shorten_body(Url, Flags) ->
+    Base = #{<<"url">> => list_to_binary(Url)},
+    M0 = case maps:get(custom_code,  Flags, undefined) of
+           undefined -> Base;
+           V -> Base#{<<"custom_code">> => list_to_binary(V)}
+         end,
+    M1 = case maps:get(ttl, Flags, undefined) of
+           undefined -> M0;
+           V -> M0#{<<"ttl">> => V}
+         end,
+    M2 = case maps:get(password, Flags, undefined) of
+           undefined -> M1;
+           V -> M1#{<<"password">> => list_to_binary(V)}
+         end,
+    M3 = case maps:get(webhook_url, Flags, undefined) of
+           undefined -> M2;
+           V -> M2#{<<"webhook_url">> => list_to_binary(V)}
+         end,
+    jsone_encode(M3).
+
+%% =============================================================================
+%% Output Helpers
+%% =============================================================================
+
+base_url(#{host := H, port := P}) ->
+    "http://" ++ H ++ ":" ++ integer_to_list(P).
+
+ok_msg(Fmt, Args) ->
+    io:format("~n  ✓  " ++ Fmt ++ "~n~n", Args).
+
+err_msg(Msg) ->
+    io:format("~n  ✗  Error: ~ts~n~n", [Msg]),
+    halt(1).
+
+print_field(_, null)      -> ok;
+print_field(_, undefined) -> ok;
+print_field(Label, Val)   ->
+    io:format("  ~-10s : ~ts~n", [Label, fmt_field(Val)]).
+
+fmt_field(null)      -> <<"—">>;
+fmt_field(undefined) -> <<"—">>;
+fmt_field(true)      -> <<"yes">>;
+fmt_field(false)     -> <<"no">>;
+fmt_field(B) when is_binary(B) -> B;
+fmt_field(I) when is_integer(I) -> integer_to_binary(I);
+fmt_field(V) -> list_to_binary(io_lib:format("~p", [V])).
+
+truncate(B, Max) when is_binary(B) ->
+    S = binary_to_list(B),
+    if length(S) > Max -> string:substr(S, 1, Max - 3) ++ "...";
+       true -> S
+    end.
+
+print_help() ->
+    io:format("~n"),
+    io:format("  shortener — URL Shortener CLI~n"),
+    io:format("  ─────────────────────────────────────────────────────~n"),
+    io:format("  Commands:~n"),
+    io:format("    shorten <url> [--custom CODE] [--ttl SEC] [--password PWD] [--webhook URL]~n"),
+    io:format("    bulk <url1> <url2> ...~n"),
+    io:format("    stats <code>~n"),
+    io:format("    preview <code>~n"),
+    io:format("    qr <code>~n"),
+    io:format("    admin stats~n"),
+    io:format("    admin list [--page N] [--limit N]~n"),
+    io:format("    admin delete <code>~n"),
+    io:format("    admin analytics <code>~n"),
+    io:format("    config set --host HOST --port PORT [--token TOKEN]~n"),
+    io:format("    config show~n"),
+    io:format("  ─────────────────────────────────────────────────────~n"),
+    io:format("  Config file: ~~~/.shortener.conf~n~n").
