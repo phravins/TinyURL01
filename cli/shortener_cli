@@ -16,6 +16,7 @@
 %%   shortener admin analytics <code>
 %%   shortener config set --host HOST --port PORT [--token TOKEN]
 %%   shortener config show
+%%   shortener web
 %%
 -mode(compile).
 
@@ -172,6 +173,13 @@ main(["admin", "analytics", Code]) ->
             io:format("~n");
         {error, Msg} -> err_msg(Msg)
     end;
+
+%% ---- Open Web UI ----
+main(["web"]) ->
+    Cfg = load_config(),
+    Url = base_url(Cfg),
+    io:format("~n  Opening Web UI at ~s ...~n~n", [Url]),
+    open_browser(Url);
 
 main(Args) ->
     io:format("~nUnknown command: ~s~n", [string:join(Args, " ")]),
@@ -473,5 +481,14 @@ print_help() ->
     io:format("    admin analytics <code>~n"),
     io:format("    config set --host HOST --port PORT [--token TOKEN]~n"),
     io:format("    config show~n"),
+    io:format("    web~n"),
     io:format("  ─────────────────────────────────────────────────────~n"),
     io:format("  Config file: ~~~/.shortener.conf~n~n").
+
+open_browser(Url) ->
+    case os:type() of
+        {win32, _} -> os:cmd("start " ++ Url);
+        {unix, darwin} -> os:cmd("open " ++ Url);
+        {unix, linux} -> os:cmd("xdg-open " ++ Url);
+        _ -> io:format("  Please navigate to ~s manually.~n", [Url])
+    end.

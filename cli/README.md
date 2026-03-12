@@ -109,6 +109,12 @@ shortener preview Ab3k9Q
 shortener qr Ab3k9Q
 ```
 
+### Open Web UI
+
+```bash
+shortener web
+```
+
 ### Admin Commands
 
 ```bash

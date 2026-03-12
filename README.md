@@ -254,6 +254,9 @@ shortener preview Ab3k9Q
 # QR Code URL
 shortener qr Ab3k9Q
 
+# Open Web UI
+shortener web
+
 # Admin
 shortener admin stats
 shortener admin list --page 1 --limit 20
