@@ -1,0 +1,16 @@
+{application, shortener_storage,
+ [{description, "URL Shortener Storage Application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {shortener_storage_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    epgsql,
+    poolboy
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache-2.0"]},
+  {links, []}
+ ]}.

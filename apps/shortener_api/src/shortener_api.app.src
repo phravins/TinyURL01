@@ -1,0 +1,19 @@
+{application, shortener_api,
+ [{description, "URL Shortener API Application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {shortener_api_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    cowboy,
+    jsone,
+    shortener_core,
+    shortener_storage,
+    shortener_analytics
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache-2.0"]},
+  {links, []}
+ ]}.

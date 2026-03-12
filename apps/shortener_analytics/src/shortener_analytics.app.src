@@ -1,0 +1,15 @@
+{application, shortener_analytics,
+ [{description, "URL Shortener Analytics Application"},
+  {vsn, "0.1.0"},
+  {registered, []},
+  {mod, {shortener_analytics_app, []}},
+  {applications,
+   [kernel,
+    stdlib,
+    shortener_storage
+   ]},
+  {env,[]},
+  {modules, []},
+  {licenses, ["Apache-2.0"]},
+  {links, []}
+ ]}.
