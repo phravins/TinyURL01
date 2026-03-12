@@ -6,7 +6,10 @@
 init(Req, State) ->
     case cowboy_req:binding(code, Req) of
         undefined ->
+            %% Handled by cowboy_static now, but just in case:
             {ok, cowboy_req:reply(400, Req), State};
+        <<"styles.css">> -> {ok, Req, State};
+        <<"app.js">> -> {ok, Req, State};
         Code ->
             {IP, _Port} = cowboy_req:peer(Req),
             IPBinary = list_to_binary(inet:ntoa(IP)),
