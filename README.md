@@ -8,20 +8,20 @@ A **production-ready, feature-rich URL shortener** built with Erlang/OTP, Cowboy
 
 | Feature | Description |
 |---|---|
-| ⚡ **Base62 Short Codes** | Unique 6-char codes generated from system time |
-| 🔒 **Password-Protected Links** | SHA-256 hashed, HTML unlock form included |
-| ⏱️ **Expiring Links (TTL)** | Configurable expiry, auto-cleanup every 60s |
-| 📦 **Bulk Shortening** | Shorten an array of URLs in a single request |
-| 🗺️ **Geo-Tracking** | Country/city logged per click via ip-api.com |
-| 🔔 **Webhook Notifications** | Fire an HTTP POST to your URL on every click |
-| 🖼️ **Link Preview** | Fetches `<title>`, OpenGraph tags from destinations |
-| 📊 **QR Code Generation** | Instant QR code for any short URL |
-| 🛡️ **Rate Limiting** | 20 req/min per IP (ETS sliding window) |
-| 🧑‍💼 **Admin Dashboard API** | Stats, URL list, per-link analytics, delete — API-key protected |
-| 🌐 **Distributed Erlang** | Cache invalidation broadcast across nodes via `pg` process groups |
-| ⚡ **ETS Cache-Aside** | In-memory ETS cache backing every redirect (sub-ms lookups) |
-| 💻 **Cross-Platform CLI** | Full-featured CLI for Windows, Linux, and macOS |
-| 🎨 **Elegant Web UI** | Glassmorphism SPA served directly from Erlang (no Node.js needed) |
+|  **Base62 Short Codes** | Unique 6-char codes generated from system time |
+|  **Password-Protected Links** | SHA-256 hashed, HTML unlock form included |
+|  **Expiring Links (TTL)** | Configurable expiry, auto-cleanup every 60s |
+|  **Bulk Shortening** | Shorten an array of URLs in a single request |
+|  **Geo-Tracking** | Country/city logged per click via ip-api.com |
+|  **Webhook Notifications** | Fire an HTTP POST to your URL on every click |
+|  **Link Preview** | Fetches `<title>`, OpenGraph tags from destinations |
+|  **QR Code Generation** | Instant QR code for any short URL |
+|  **Rate Limiting** | 20 req/min per IP (ETS sliding window) |
+|  **Admin Dashboard API** | Stats, URL list, per-link analytics, delete — API-key protected |
+|  **Distributed Erlang** | Cache invalidation broadcast across nodes via `pg` process groups |
+|  **ETS Cache-Aside** | In-memory ETS cache backing every redirect (sub-ms lookups) |
+|  **Cross-Platform CLI** | Full-featured CLI for Windows, Linux, and macOS |
+|  **Elegant Web UI** | Glassmorphism SPA served directly from Erlang (no Node.js needed) |
 
 ---
 
