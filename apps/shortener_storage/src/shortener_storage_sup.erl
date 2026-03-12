@@ -12,6 +12,12 @@ init([]) ->
                  intensity => 1,
                  period => 5},
 
+    DbHost = os:getenv("DB_HOST", "localhost"),
+    DbPort = list_to_integer(os:getenv("DB_PORT", "5432")),
+    DbUser = os:getenv("DB_USER", "postgres"),
+    DbPass = os:getenv("DB_PASS", "postgres"),
+    DbName = os:getenv("DB_NAME", "shortener"),
+
     PoolArgs = [
         {name, {local, shortener_db_pool}},
         {worker_module, shortener_postgres},
@@ -20,23 +26,41 @@ init([]) ->
     ],
 
     DBArgs = [
-        {host, application:get_env(shortener_storage, db_host, "localhost")},
-        {port, application:get_env(shortener_storage, db_port, 5432)},
-        {username, application:get_env(shortener_storage, db_user, "postgres")},
-        {password, application:get_env(shortener_storage, db_pass, "postgres")},
-        {database, application:get_env(shortener_storage, db_name, "shortener")}
+        {host, DbHost},
+        {port, DbPort},
+        {username, DbUser},
+        {password, DbPass},
+        {database, DbName}
     ],
 
     CacheSpec = #{
-        id => shortener_cache,
-        start => {shortener_cache, start_link, []},
+        id      => shortener_cache,
+        start   => {shortener_cache, start_link, []},
         restart => permanent,
         shutdown => 5000,
-        type => worker,
+        type    => worker,
         modules => [shortener_cache]
+    },
+
+    DistCacheSpec = #{
+        id      => shortener_distributed_cache,
+        start   => {shortener_distributed_cache, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type    => worker,
+        modules => [shortener_distributed_cache]
+    },
+
+    ExpirySpec = #{
+        id      => shortener_expiry_server,
+        start   => {shortener_expiry_server, start_link, []},
+        restart => permanent,
+        shutdown => 5000,
+        type    => worker,
+        modules => [shortener_expiry_server]
     },
 
     PoolSpec = poolboy:child_spec(shortener_db_pool, PoolArgs, DBArgs),
 
-    ChildSpecs = [CacheSpec, PoolSpec],
+    ChildSpecs = [CacheSpec, PoolSpec, DistCacheSpec, ExpirySpec],
     {ok, {SupFlags, ChildSpecs}}.
