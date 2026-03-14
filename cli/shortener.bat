@@ -10,9 +10,12 @@ set ESCRIPT=%SCRIPT_DIR%shortener_cli
 where escript >nul 2>&1
 if %ERRORLEVEL% NEQ 0 (
     echo.
-    echo  ERROR: 'escript' not found on PATH.
-    echo  Please install Erlang from https://www.erlang.org/downloads
-    echo  and add it to your PATH environment variable.
+    echo  ❌ ERROR: 'escript' (Erlang) not found on PATH.
+    echo.
+    echo  Please install Erlang automatically by running this in an Administrator terminal:
+    echo  iwr https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.ps1 -useb ^| iex
+    echo.
+    echo  Alternatively, install manually from https://www.erlang.org/downloads
     echo.
     exit /b 1
 )

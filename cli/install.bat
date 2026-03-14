@@ -35,8 +35,11 @@ copy /Y "%SCRIPT_DIR%shortener_cli" "%INSTALL_DIR%\shortener_cli" >nul
 copy /Y "%SCRIPT_DIR%shortener.bat" "%INSTALL_DIR%\shortener.bat" >nul
 copy /Y "%SCRIPT_DIR%shortener.ps1" "%INSTALL_DIR%\shortener.ps1" >nul
 
-:: Add to PATH using Powershell for better robustness
+:: Add to PATH using Powershell for better robustness (updates Machine PATH)
 powershell -Command "[Environment]::SetEnvironmentVariable('PATH', \"%INSTALL_DIR%;$([Environment]::GetEnvironmentVariable('PATH', 'Machine'))\", 'Machine')"
+
+:: Also update CURRENT SESSION PATH so they don't have to restart
+set "PATH=%INSTALL_DIR%;%PATH%"
 
 echo  ✓ Installed successfully!
 echo.
