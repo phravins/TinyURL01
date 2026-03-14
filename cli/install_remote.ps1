@@ -1,7 +1,7 @@
 # Check for Administrator privileges
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "`n  ❌ ERROR: This script MUST be run as Administrator.`n" -ForegroundColor Red
-    Write-Host "  Please right-click your Terminal/PowerShell and select 'Run as Administrator'.`n"
+    Write-Host "  To fix this: Right-click your Terminal/PowerShell and select 'Run as Administrator'.`n"
     exit 1
 }
 
@@ -60,7 +60,7 @@ if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
 
 
 # 2. Add Erlang to PATH just in case it was installed but not refreshed
-$ErlangPath = "C:\Program Files\erl*\bin"
+$ErlangPath = "${env:ProgramFiles}\erl*\bin"
 $ResolvedErlang = Resolve-Path $ErlangPath -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1
 if ($null -ne $ResolvedErlang -and $env:Path -notlike "*$ResolvedErlang*") {
     $env:Path += ";$ResolvedErlang"
@@ -86,4 +86,7 @@ if ($CurrentPath -notlike "*$InstallDir*") {
 
 Write-Host "`n  ✓ Installed successfully!" -ForegroundColor Green
 Write-Host "  IMPORTANT: Please RESTART your terminal to use the 'shortener' command." -ForegroundColor Yellow
-Write-Host "  After restarting, try running: shortener webmock`n" -ForegroundColor Cyan
+Write-Host "  After restarting, try running:" -ForegroundColor Cyan
+Write-Host "    shortener help   (to see examples)" -ForegroundColor Gray
+Write-Host "    shortener start  (to run production server)" -ForegroundColor Gray
+Write-Host "    shortener webmock (to test UI locally)`n" -ForegroundColor Gray
