@@ -16,6 +16,7 @@
 %%   shortener admin analytics <code>
 %%   shortener config set --host HOST --port PORT [--token TOKEN]
 %%   shortener config show
+%%   shortener start
 %%   shortener web
 %%   shortener webmock
 %%
@@ -182,6 +183,18 @@ main(["web"]) ->
     io:format("~n  Opening Web UI at ~s ...~n~n", [Url]),
     open_browser(Url);
 
+%% ---- Start Production Server ----
+main(["start"]) ->
+    case filelib:is_file("rebar.config") of
+        true ->
+            io:format("~n  Starting TinyURL Server via rebar3...~n"),
+            io:format("  (Press Ctrl+C to stop the server)~n~n"),
+            os:cmd("rebar3 shell");
+        false ->
+            io:format("~n  Error: rebar.config not found.~n"),
+            io:format("  Please run this command from the project root directory.~n~n")
+    end;
+
 %% ---- Open Mock Web Server ----
 main(["webmock"]) ->
     case filelib:is_file("mock_server.py") of
@@ -189,7 +202,11 @@ main(["webmock"]) ->
             io:format("~n  Starting WebMock Server on port 8000...~n"),
             io:format("  (Press Ctrl+C to stop the server)~n~n"),
             open_browser("http://localhost:8000"),
-            os:cmd("python mock_server.py");
+            %% Try python3 first, then python
+            case os:cmd("python3 --version 2>&1") of
+                "Python 3" ++ _ -> os:cmd("python3 mock_server.py");
+                _ -> os:cmd("python mock_server.py")
+            end;
         false ->
             io:format("~n  Error: mock_server.py not found.~n"),
             io:format("  Please run this command from the project root directory.~n~n")
@@ -495,6 +512,7 @@ print_help() ->
     io:format("    admin analytics <code>~n"),
     io:format("    config set --host HOST --port PORT [--token TOKEN]~n"),
     io:format("    config show~n"),
+    io:format("    start~n"),
     io:format("    web~n"),
     io:format("    webmock~n"),
     io:format("  ─────────────────────────────────────────────────────~n"),
