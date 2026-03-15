@@ -43,17 +43,43 @@ if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
     }
     
     if (-not $ErlangInstalled) {
-        # Fallback: Direct download and install
-        Write-Host "  Attempting direct download (this may take a minute)..." -ForegroundColor DarkGray
+        # Fallback: Direct download and install with retries
+        Write-Host "  Attempting direct download..." -ForegroundColor DarkGray
         $InstallerUrl = "https://github.com/erlang/otp/releases/download/OTP-26.2.3/otp_win64_26.2.3.exe"
         $InstallerPath = Join-Path $env:TEMP "erlang_installer.exe"
-        Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing
+        
+        $Retries = 3
+        $Success = $false
+        for ($i = 1; $i -le $Retries; $i++) {
+            try {
+                if ($i -gt 1) { Write-Host "  Retry $i/$Retries..." -ForegroundColor Yellow }
+                Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing -TimeoutSec 60
+                $Success = $true
+                break
+            } catch {
+                Write-Host "  Download failed: $($_.Exception.Message)" -ForegroundColor Red
+                if ($_.Exception.Message -like "*could not be resolved*") {
+                    Write-Host "  [DNS Issue Detected] Attempting to flush DNS cache..." -ForegroundColor Yellow
+                    ipconfig /flushdns | Out-Null
+                    Start-Sleep -Seconds 2
+                }
+                if ($i -lt $Retries) { Start-Sleep -Seconds 5 }
+            }
+        }
+
+        if (-not $Success) {
+            Write-Host "`n  ❌ FATAL ERROR: Could not download Erlang installer." -ForegroundColor Red
+            Write-Host "  It looks like your system is having trouble reaching GitHub or DNS resolution is failing."
+            Write-Host "  Please manually download and install Erlang from:"
+            Write-Host "  https://www.erlang.org/downloads`n"
+            exit 1
+        }
         
         Write-Host "  Running Erlang installer silently..." -ForegroundColor DarkGray
         $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -ne 0) {
-            Write-Host "  Failed to install Erlang automatically." -ForegroundColor Red
+            Write-Host "  Failed to install Erlang automatically (Exit Code: $($process.ExitCode))." -ForegroundColor Red
             exit 1
         }
         $ErlangInstalled = $true
