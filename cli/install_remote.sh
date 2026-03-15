@@ -86,7 +86,27 @@ if ! check_erlang; then
             powershell.exe -Command "winget install Erlang.Erlang --silent --accept-package-agreements --accept-source-agreements"
         else
             printf "  ${YELLOW}winget not found. Falling back to direct download...${NC}\n"
-            powershell.exe -Command "Invoke-WebRequest -Uri 'https://github.com/erlang/otp/releases/download/OTP-26.2.3/otp_win64_26.2.3.exe' -OutFile '$env:TEMP\erlang_installer.exe'; Start-Process -FilePath '$env:TEMP\erlang_installer.exe' -ArgumentList '/S' -Wait"
+            powershell.exe -Command "
+                \$Success = \$false;
+                for (\$i = 1; \$i -le 3; \$i++) {
+                    try {
+                        Write-Host '  Attempting download (Try ' \$i ')...';
+                        Invoke-WebRequest -Uri 'https://github.com/erlang/otp/releases/download/OTP-28.4.1/otp_win64_28.4.1.exe' -OutFile '\$env:TEMP\erlang_installer.exe' -TimeoutSec 60;
+                        \$Success = \$true;
+                        break;
+                    } catch {
+                        Write-Host \"  Download failed: \$(\$_.Exception.Message)\";
+                        Start-Sleep -Seconds 5;
+                    }
+                }
+                if (\$Success) {
+                    Write-Host '  Download successful. Starting installer...';
+                    Start-Process -FilePath '\$env:TEMP\erlang_installer.exe' -ArgumentList '/S' -Wait;
+                } else {
+                    Write-Host '  Failed to download Erlang installer after multiple attempts.';
+                    exit 1;
+                }
+            "
         fi
         
         ERLANG_BIN=$(powershell.exe -Command "Resolve-Path '${env:ProgramFiles}\erl*\bin' | Select-Object -ExpandProperty Path -First 1" | tr -d '\r')

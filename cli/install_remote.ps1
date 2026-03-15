@@ -45,7 +45,7 @@ if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
     if (-not $ErlangInstalled) {
         # Fallback: Direct download and install with retries
         Write-Host "  Attempting direct download..." -ForegroundColor DarkGray
-        $InstallerUrl = "https://github.com/erlang/otp/releases/download/OTP-26.2.3/otp_win64_26.2.3.exe"
+        $InstallerUrl = "https://github.com/erlang/otp/releases/download/OTP-28.4.1/otp_win64_28.4.1.exe"
         $InstallerPath = Join-Path $env:TEMP "erlang_installer.exe"
         
         $Retries = 3
