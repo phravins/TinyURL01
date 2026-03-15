@@ -40,6 +40,25 @@ Or run directly without installing:
 cli\shortener.bat shorten https://example.com
 ```
 
+### Quick Install (Remote)
+
+The remote installers now include:
+- **Automatic Erlang Detection**: Checks for Erlang and installs the newest version (OTP 28.4.1) if missing.
+- **Cross-Platform Support**: Works on Linux, macOS, and Windows (PowerShell or Git Bash).
+- **Network Resilience**: Automatic retries and DNS recovery for faster, more reliable downloads.
+
+#### Linux / macOS / Windows Git Bash
+```bash
+curl -fsSL https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.sh | bash
+```
+
+#### Windows PowerShell (As Administrator)
+```powershell
+iwr https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.ps1 -useb | iex
+```
+
+---
+
 ### Windows (PowerShell)
 
 ```powershell
