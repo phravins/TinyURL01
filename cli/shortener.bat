@@ -29,7 +29,7 @@ for /d %%D in ("%ProgramFiles(x86)%\erl*") do (
 
 :: 3. Error out if not found
 echo.
-echo  ❌ ERROR: 'escript' (Erlang) not found.
+echo  ERROR: 'escript' (Erlang) not found.
 echo.
 echo  Please install Erlang automatically by running this in an Administrator terminal:
 echo  iwr https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.ps1 -useb ^| iex

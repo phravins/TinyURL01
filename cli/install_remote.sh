@@ -37,9 +37,19 @@ if [ "$FREE_SPACE" -lt 50 ]; then
 fi
 
 # 1. Check and Install Erlang automatically
-if ! command -v escript &>/dev/null; then
+check_erlang() {
+    if command -v escript &>/dev/null; then
+        ERLANG_VERSION=$(escript -version 2>&1 | grep -oE '[0-9]+' | head -1)
+        return 0
+    fi
+    return 1
+}
+
+if ! check_erlang; then
     printf "  ${YELLOW}Erlang not found. Installing automatically...${NC}\n"
-    if [[ "$(uname)" == "Darwin" ]]; then
+    OS_TYPE="$(uname)"
+    
+    if [[ "$OS_TYPE" == "Darwin" ]]; then
         if ! command -v brew &>/dev/null; then
             printf "  ${RED}Error: Homebrew is required on macOS for automated installation.${NC}\n"
             printf "  Install Homebrew first: /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"\n"
@@ -47,17 +57,11 @@ if ! command -v escript &>/dev/null; then
         fi
         printf "  Running: brew install erlang\n"
         brew install erlang
-    elif [[ "$(uname)" == "Linux" ]]; then
+    elif [[ "$OS_TYPE" == "Linux" ]]; then
         if command -v apt-get &>/dev/null; then
             printf "  Running: apt-get install erlang (Requires sudo)\n"
-            sudo apt-get update || { printf "  ${RED}Error: apt-get update failed. Check your internet connection or disk health.${NC}\n"; exit 1; }
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y erlang || { 
-                printf "  ${RED}Error: dpkg/apt failure detected.${NC}\n"
-                printf "  Diagnostics:\n"
-                df -h /
-                mount | grep " / "
-                exit 1; 
-            }
+            sudo apt-get update || { printf "  ${RED}Error: apt-get update failed.${NC}\n"; exit 1; }
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y erlang
         elif command -v dnf &>/dev/null; then
             printf "  Running: dnf install erlang (Requires sudo)\n"
             sudo dnf install -y erlang
@@ -74,13 +78,34 @@ if ! command -v escript &>/dev/null; then
             printf "  ${RED}Error: Unsupported Linux package manager. Please install Erlang manually.${NC}\n"
             exit 1
         fi
+    elif [[ "$OS_TYPE" == MINGW* || "$OS_TYPE" == CYGWIN* || "$OS_TYPE" == MSYS* ]]; then
+        printf "  ${CYAN}Windows environment detected (Bash). Attempting to install Erlang via PowerShell/Winget...${NC}\n"
+        # Check for winget via powershell
+        if powershell.exe -Command "Get-Command winget" &>/dev/null; then
+            printf "  Running: winget install Erlang.Erlang\n"
+            powershell.exe -Command "winget install Erlang.Erlang --silent --accept-package-agreements --accept-source-agreements"
+        else
+            printf "  ${YELLOW}winget not found. Falling back to direct download...${NC}\n"
+            powershell.exe -Command "Invoke-WebRequest -Uri 'https://github.com/erlang/otp/releases/download/OTP-26.2.3/otp_win64_26.2.3.exe' -OutFile '$env:TEMP\erlang_installer.exe'; Start-Process -FilePath '$env:TEMP\erlang_installer.exe' -ArgumentList '/S' -Wait"
+        fi
+        
+        ERLANG_BIN=$(powershell.exe -Command "Resolve-Path '${env:ProgramFiles}\erl*\bin' | Select-Object -ExpandProperty Path -First 1" | tr -d '\r')
+        if [ -n "$ERLANG_BIN" ]; then
+            export PATH="$PATH:$(cygpath "$ERLANG_BIN")"
+        fi
     else
-        printf "  ${RED}Error: Unsupported OS for auto-install. Please install Erlang manually.${NC}\n"
+        printf "  ${RED}Error: Unsupported OS ($OS_TYPE) for auto-install. Please install Erlang manually.${NC}\n"
         exit 1
     fi
-    printf "  ${GREEN}✓${NC} Erlang installed successfully.\n"
+
+    if check_erlang; then
+        printf "  ${GREEN}✓${NC} Erlang installed successfully (v~$ERLANG_VERSION).\n"
+    else
+        printf "  ${RED}Error: Erlang was installed but 'escript' is still not found in PATH.${NC}\n"
+        printf "  Please restart your terminal or add Erlang to PATH manually.\n"
+        exit 1
+    fi
 else
-    ERLANG_VERSION=$(escript -version 2>&1 | grep -oE '[0-9]+' | head -1)
     printf "  ${GREEN}✓${NC} Erlang already installed (v~$ERLANG_VERSION)\n"
 fi
 

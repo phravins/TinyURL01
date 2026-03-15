@@ -28,7 +28,7 @@ $EscriptPath = Find-Escript
 # Check escript is available
 if (-not $EscriptPath) {
     Write-Host ""
-    Write-Host "  ❌ ERROR: 'escript' (Erlang) not found." -ForegroundColor Red
+    Write-Host "   ERROR: 'escript' (Erlang) not found." -ForegroundColor Red
     Write-Host "  Please install Erlang automatically by running this in an Administrator terminal:"
     Write-Host ""
     Write-Host "  iwr https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/install_remote.ps1 -useb | iex" -ForegroundColor Cyan
