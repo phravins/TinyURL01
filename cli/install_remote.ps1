@@ -1,5 +1,7 @@
 # Set Output Encoding to UTF8 for clean symbols
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$ProgressPreference = 'SilentlyContinue'
+$ErrorActionPreference = "Stop"
 
 # Check for Administrator privileges
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
@@ -8,43 +10,79 @@ if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]:
     exit 1
 }
 
-$ErrorActionPreference = "Stop"
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $InstallDir = Join-Path $env:ProgramFiles "shortener-cli"
 $RawBaseUrl = "https://raw.githubusercontent.com/phravins/TinyURL01/main/cli"
 
-Write-Host "`n  TinyURL Complete Installer for Windows`n" -ForegroundColor Cyan
+function Show-Header {
+    Clear-Host
+    Write-Host "`n"
+    Write-Host "   _______          __  __________ " -ForegroundColor Cyan
+    Write-Host "  /_  __(_)___  __ / / / / __ \/ / " -ForegroundColor Cyan
+    Write-Host "   / / / / __ \/ // / / / /_/ / /  " -ForegroundColor Cyan
+    Write-Host "  / / / / / / / // /_/ / _, _/ /___" -ForegroundColor Cyan
+    Write-Host " /_/ /_/_/ /_/\__, \____/_/ |_/_____/" -ForegroundColor Cyan
+    Write-Host "             /____/                " -ForegroundColor Cyan
+    Write-Host "                                   "
+    Write-Host "   TinyURL Windows Installer       " -ForegroundColor Yellow
+    Write-Host "`n"
+}
+
+function Show-RocketProgress {
+    param(
+        [int]$Percent,
+        [string]$Task
+    )
+    $BarWidth = 40
+    $Pos = [math]::Floor(($Percent / 100) * $BarWidth)
+    if ($Pos -lt 1) { $Pos = 1 }
+    if ($Pos -gt $BarWidth) { $Pos = $BarWidth }
+    
+    $Trail = "=" * ($Pos - 1)
+    $Space = " " * ($BarWidth - $Pos)
+    $Rocket = if ($Percent -ge 100) { "🌟" } else { "🚀" }
+    
+    $Line = "`r  [$Trail$Rocket$Space] $Percent%  - $Task"
+    Write-Host -NoNewline $Line.PadRight(100, ' ')
+}
+
+function Invoke-SimulatedRocket {
+    param([int]$Start, [int]$End, [string]$Text, [int]$SpeedMs = 20)
+    for ($i = $Start; $i -le $End; $i++) {
+        Show-RocketProgress -Percent $i -Task $Text
+        Start-Sleep -Milliseconds $SpeedMs
+    }
+}
+
+Show-Header
+Invoke-SimulatedRocket 0 5 "Initializing Installer..."
 
 # 1. Check and Install Erlang
 if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
-    Write-Host "  Erlang not found. Downloading and installing automatically..." -ForegroundColor Yellow
+    Invoke-SimulatedRocket 5 15 "Erlang not found. Preparing download..."
     
     $ErlangInstalled = $false
     
-    # Try using Winget first
     if (Get-Command winget -ErrorAction SilentlyContinue) {
         $WingetIds = @("Ericsson.Erlang", "Erlang.Erlang")
         foreach ($id in $WingetIds) {
             try {
-                Write-Host "  Trying Winget to install $id..." -ForegroundColor DarkGray
-                # Use --accept-source-agreements to avoid interactive prompts
-                winget install $id --silent --accept-package-agreements --accept-source-agreements --no-upgrade
+                Invoke-SimulatedRocket 15 25 "Trying Winget: $id..."
+                winget install $id --silent --accept-package-agreements --accept-source-agreements --no-upgrade | Out-Null
                 if ($LASTEXITCODE -eq 0) {
                     $ErlangInstalled = $true
+                    Invoke-SimulatedRocket 25 50 "Erlang installed via Winget."
                     break
-                } else {
-                    Write-Host "  Winget failed for $id (Exit Code: $LASTEXITCODE)" -ForegroundColor DarkGray
                 }
             } catch {
-                Write-Host "  Winget exception for $id, trying next..." -ForegroundColor DarkGray
+                # Ignore
             }
         }
     }
     
     if (-not $ErlangInstalled) {
-        # Fallback: Direct download and install with retries
-        Write-Host "  Attempting direct download..." -ForegroundColor DarkGray
+        Invoke-SimulatedRocket 15 20 "Attempting direct download of Erlang..."
         $InstallerUrl = "https://github.com/erlang/otp/releases/download/OTP-28.4.1/otp_win64_28.4.1.exe"
         $InstallerPath = Join-Path $env:TEMP "erlang_installer.exe"
         
@@ -52,14 +90,12 @@ if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
         $Success = $false
         for ($i = 1; $i -le $Retries; $i++) {
             try {
-                if ($i -gt 1) { Write-Host "  Retry $i/$Retries..." -ForegroundColor Yellow }
-                Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing -TimeoutSec 60
+                Invoke-SimulatedRocket 20 30 "Downloading OTP 28.4.1 (Retry $i)..."
+                Invoke-WebRequest -Uri $InstallerUrl -OutFile $InstallerPath -UseBasicParsing -TimeoutSec 120
                 $Success = $true
                 break
             } catch {
-                Write-Host "  Download failed: $($_.Exception.Message)" -ForegroundColor Red
                 if ($_.Exception.Message -like "*could not be resolved*") {
-                    Write-Host "  [DNS Issue Detected] Attempting to flush DNS cache..." -ForegroundColor Yellow
                     ipconfig /flushdns | Out-Null
                     Start-Sleep -Seconds 2
                 }
@@ -68,44 +104,38 @@ if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
         }
 
         if (-not $Success) {
-            Write-Host "`n  ❌ FATAL ERROR: Could not download Erlang installer." -ForegroundColor Red
-            Write-Host "  It looks like your system is having trouble reaching GitHub or DNS resolution is failing."
-            Write-Host "  Please manually download and install Erlang from:"
-            Write-Host "  https://www.erlang.org/downloads`n"
+            Write-Host "`n`n  ❌ FATAL ERROR: Could not download Erlang installer." -ForegroundColor Red
             exit 1
         }
         
-        Write-Host "  Running Erlang installer silently..." -ForegroundColor DarkGray
+        Invoke-SimulatedRocket 30 45 "Running Erlang installer silently..."
         $process = Start-Process -FilePath $InstallerPath -ArgumentList "/S" -Wait -PassThru -NoNewWindow
         
         if ($process.ExitCode -ne 0) {
-            Write-Host "  Failed to install Erlang automatically (Exit Code: $($process.ExitCode))." -ForegroundColor Red
+            Write-Host "`n`n  ❌ Failed to install Erlang automatically." -ForegroundColor Red
             exit 1
         }
         $ErlangInstalled = $true
+        Invoke-SimulatedRocket 45 50 "Erlang installed successfully."
     }
     
     if ($ErlangInstalled) {
-        Write-Host "  ✓ Erlang installed successfully." -ForegroundColor Green
-        # Force a reload of the machine path into the current session
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
     }
 } else {
-    Write-Host "  ✓ Erlang is already installed." -ForegroundColor Green
+    Invoke-SimulatedRocket 5 50 "Erlang is already installed."
 }
 
-
 # 2. Add Erlang to PATH just in case it was installed but not refreshed
+Invoke-SimulatedRocket 50 60 "Resolving Erlang PATH..."
 $ErlangBinPath = "${env:ProgramFiles}\erl*\bin"
 $ResolvedErlang = Resolve-Path $ErlangBinPath -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Path -First 1
 
 if ($null -ne $ResolvedErlang) {
     if ($env:Path -notlike "*$ResolvedErlang*") {
         $env:Path += ";$ResolvedErlang"
-        Write-Host "  ✓ Added Erlang to current session PATH" -ForegroundColor DarkGray
     }
 } else {
-     # If we still can't find it, retry common locations
      $TryPaths = @("C:\Program Files\erl26.2.3\bin", "C:\Program Files\erl-26.2.3\bin")
      foreach ($tp in $TryPaths) {
          if (Test-Path $tp) {
@@ -116,36 +146,30 @@ if ($null -ne $ResolvedErlang) {
      }
 }
 
-# Final escript verification
-if (-not (Get-Command escript -ErrorAction SilentlyContinue)) {
-    Write-Host "  ⚠️ Warning: Erlang installer finished but 'escript' is still not found in standard paths." -ForegroundColor Yellow
-    Write-Host "  Please manually add your Erlang bin folder to PATH."
-}
-
 # 3. Install CLI
+Invoke-SimulatedRocket 60 70 "Creating Installation Directory..."
 if (-not (Test-Path $InstallDir)) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 }
 
-Write-Host "  ↓ Downloading TinyURL CLI..." -ForegroundColor Blue
+Invoke-SimulatedRocket 70 85 "Downloading TinyURL CLI files..."
 Invoke-WebRequest -Uri "$RawBaseUrl/shortener_cli" -OutFile "$InstallDir\shortener_cli" -UseBasicParsing
 Invoke-WebRequest -Uri "$RawBaseUrl/shortener.bat" -OutFile "$InstallDir\shortener.bat" -UseBasicParsing
 Invoke-WebRequest -Uri "$RawBaseUrl/shortener.ps1" -OutFile "$InstallDir\shortener.ps1" -UseBasicParsing
 
-# Add CLI to PATH persistingly
+Invoke-SimulatedRocket 85 95 "Configuring Environment Variables..."
 $CurrentPath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
 if ($CurrentPath -notlike "*$InstallDir*") {
     $NewPath = "$InstallDir;$CurrentPath"
     [Environment]::SetEnvironmentVariable("PATH", $NewPath, "Machine")
-    Write-Host "  ✓ Added CLI to system PATH" -ForegroundColor Green
 }
 
-# Add CLI to CURRENT SESSION PATH so user can use it immediately
 if ($env:Path -notlike "*$InstallDir*") {
     $env:Path += ";$InstallDir"
 }
 
-Write-Host "`n  ✓ Installed successfully!" -ForegroundColor Green
+Invoke-SimulatedRocket 95 100 "Finishing Installation..."
+Write-Host "`n`n  🎉 Installed successfully!" -ForegroundColor Green
 Write-Host "  You can now use the 'shortener' command immediately in this terminal session." -ForegroundColor Cyan
 Write-Host "  (Future terminal sessions will also have it automatically)`n"
 Write-Host "  Try running:" -ForegroundColor Gray
