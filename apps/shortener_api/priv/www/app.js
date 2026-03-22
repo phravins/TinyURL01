@@ -24,20 +24,90 @@ const closeQr = document.querySelector('.close-modal');
 const qrImage = document.getElementById('qr-image');
 const qrLink = document.getElementById('qr-link');
 
+const recentLinksContainer = document.getElementById('recent-links');
+const historyList = document.getElementById('history-list');
+
+const themeToggle = document.getElementById('theme-toggle');
+
 // Base URL detection
 const API_BASE = window.location.origin;
+
+// Theme Logic
+function getSavedTheme() {
+    return localStorage.getItem('tinyurl-theme') || 'dark';
+}
+function applyTheme(theme) {
+    document.body.setAttribute('data-theme', theme);
+    if (theme === 'light') {
+        themeToggle.innerHTML = '🌙 Dark Mode';
+    } else {
+        themeToggle.innerHTML = '✨ Light Mode';
+    }
+}
+let currentTheme = getSavedTheme();
+applyTheme(currentTheme);
+
+themeToggle.addEventListener('click', () => {
+    currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    localStorage.setItem('tinyurl-theme', currentTheme);
+    applyTheme(currentTheme);
+});
+
+// History Logic
+function loadHistory() {
+    const hist = JSON.parse(localStorage.getItem('tinyurl-history') || '[]');
+    if (hist.length > 0) {
+        recentLinksContainer.classList.remove('hidden');
+        historyList.innerHTML = '';
+        hist.slice(0, 5).forEach(item => { // Show top 5
+            const li = document.createElement('li');
+            li.className = 'history-item';
+            
+            const timeAgo = Math.floor((Date.now() - item.timestamp) / 60000);
+            const timeStr = timeAgo < 1 ? 'Just now' : `${timeAgo}m ago`;
+
+            li.innerHTML = `
+                <div>
+                    <a href="${item.short_url}" class="history-code" target="_blank">${item.short_code}</a>
+                    <div class="history-time">${timeStr}</div>
+                </div>
+                <div class="history-url" title="${item.long_url}">${item.long_url}</div>
+            `;
+            historyList.appendChild(li);
+        });
+    } else {
+        recentLinksContainer.classList.add('hidden');
+    }
+}
+
+function saveToHistory(short_url, short_code, long_url) {
+    const hist = JSON.parse(localStorage.getItem('tinyurl-history') || '[]');
+    // prepend new item
+    hist.unshift({ short_url, short_code, long_url, timestamp: Date.now() });
+    localStorage.setItem('tinyurl-history', JSON.stringify(hist.slice(0, 20))); // Keep 20 recent max
+    loadHistory();
+}
+
+// Initial Load
+loadHistory();
 
 // Navigation
 navStats.addEventListener('click', () => {
     viewShorten.classList.add('hidden');
+    viewShorten.classList.remove('animate-enter');
     viewStats.classList.remove('hidden');
+    viewStats.classList.add('animate-enter');
+    // Hide parts of shorten view
     resultContainer.classList.add('hidden');
     errorContainer.classList.add('hidden');
 });
 
 btnBack.addEventListener('click', () => {
     viewStats.classList.add('hidden');
+    viewStats.classList.remove('animate-enter');
     viewShorten.classList.remove('hidden');
+    viewShorten.classList.add('animate-enter');
+    // Hide parts of stats view
     statsResult.classList.add('hidden');
     statsError.classList.add('hidden');
 });
@@ -92,6 +162,9 @@ shortenForm.addEventListener('submit', async (e) => {
         // Show result
         shortLink.href = data.short_url;
         shortLink.textContent = data.short_url;
+
+        // Save History
+        saveToHistory(data.short_url, data.short_code, payload.url);
 
         // Setup QR button
         btnQr.onclick = () => showQr(data.short_code, data.short_url);
