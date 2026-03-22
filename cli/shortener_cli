@@ -447,19 +447,19 @@ build_shorten_body(Url, Flags) ->
     Base = #{<<"url">> => list_to_binary(Url)},
     M0 = case maps:get(custom_code,  Flags, undefined) of
            undefined -> Base;
-           V -> Base#{<<"custom_code">> => list_to_binary(V)}
+           V0 -> Base#{<<"custom_code">> => list_to_binary(V0)}
          end,
     M1 = case maps:get(ttl, Flags, undefined) of
            undefined -> M0;
-           V -> M0#{<<"ttl">> => V}
+           V1 -> M0#{<<"ttl">> => V1}
          end,
     M2 = case maps:get(password, Flags, undefined) of
            undefined -> M1;
-           V -> M1#{<<"password">> => list_to_binary(V)}
+           V2 -> M1#{<<"password">> => list_to_binary(V2)}
          end,
     M3 = case maps:get(webhook_url, Flags, undefined) of
            undefined -> M2;
-           V -> M2#{<<"webhook_url">> => list_to_binary(V)}
+           V3 -> M2#{<<"webhook_url">> => list_to_binary(V3)}
          end,
     jsone_encode(M3).
 
@@ -516,7 +516,7 @@ print_help() ->
     io:format("    web~n"),
     io:format("    webmock~n"),
     io:format("  ─────────────────────────────────────────────────────~n"),
-    io:format("  Config file: ~~~/.shortener.conf~n~n").
+    io:format("  Config file: ~~/.shortener.conf~n~n").
 
 open_browser(Url) ->
     case os:type() of
