@@ -9,7 +9,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/styles.css">
 </head>
-<body>
+<body data-theme="dark">
 
     <div class="blob blob-1"></div>
     <div class="blob blob-2"></div>
@@ -30,15 +30,18 @@
                 </svg>
                 <span>TinyURL</span>
             </div>
-            <nav>
+            <nav class="nav-menu">
+                <button id="theme-toggle" class="nav-link" aria-label="Toggle Theme">
+                   ✨ Light Mode
+                </button>
                 <button id="nav-stats" class="nav-link">Check Stats</button>
             </nav>
         </header>
 
         <!-- Main Shortener View -->
-        <section id="view-shorten" class="glass-card active">
+        <section id="view-shorten" class="glass-card active animate-enter">
             <h1 class="hero-title">Shorten your links.<br><span class="gradient-text">Share the world.</span></h1>
-            <p class="hero-subtitle">A lightning-fast, secure, and modern URL shortener powered by Erlang.</p>
+            <p class="hero-subtitle">A lightning-fast, secure, and modern URL shortener.</p>
 
             <form id="shorten-form" class="shorten-form">
                 <div class="input-group main-input">
@@ -94,10 +97,17 @@
             </div>
             
             <div id="error-container" class="error-msg hidden"></div>
+
+            <div id="recent-links" class="recent-links hidden">
+                <h3>Recent Links</h3>
+                <ul id="history-list" class="history-list">
+                    <!-- Javascript populates this -->
+                </ul>
+            </div>
         </section>
 
         <!-- Stats View -->
-        <section id="view-stats" class="glass-card hidden">
+        <section id="view-stats" class="glass-card hidden animate-enter">
             <div class="view-header">
                 <h2>Link Analytics</h2>
                 <button id="btn-back" class="btn-link">← Back to Shorten</button>
