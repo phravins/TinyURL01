@@ -99,12 +99,12 @@ process_url(LongUrl, CustomCode, Ttl, Password, WebhookUrl, Req) ->
                     end,
 
                     case shortener_db:save_url_full(LongUrl, ShortCode, ExpiresAt, PwdHash, WebhookUrl) of
-                        {ok, Code} ->
+                        {ok, SavedCode} ->
                             %% Kick off metadata fetch asynchronously
-                            shortener_metadata:fetch_and_store_with_code(Code, LongUrl),
+                            shortener_metadata:fetch_and_store_with_code(SavedCode, LongUrl),
                             Resp = #{
-                                <<"short_url">>  => make_short_url(Req, Code),
-                                <<"short_code">> => Code,
+                                <<"short_url">>  => make_short_url(Req, SavedCode),
+                                <<"short_code">> => SavedCode,
                                 <<"expires_at">> => format_expires(ExpiresAt),
                                 <<"protected">>  => Password =/= undefined
                             },
