@@ -22,13 +22,13 @@ is_valid_custom_code(Code) when is_binary(Code) ->
 is_valid_custom_code(Code) when is_list(Code) ->
     Len = length(Code),
     if
-        Len >= 3 andalso Len <= 20 ->
+        Len >= 3 andalso Len =< 20 ->
             lists:all(fun is_alphanumeric/1, Code);
         true ->
             false
     end.
 
-is_alphanumeric(C) when C >= $a, C <= $z -> true;
-is_alphanumeric(C) when C >= $A, C <= $Z -> true;
-is_alphanumeric(C) when C >= $0, C <= $9 -> true;
+is_alphanumeric(C) when C >= $a, C =< $z -> true;
+is_alphanumeric(C) when C >= $A, C =< $Z -> true;
+is_alphanumeric(C) when C >= $0, C =< $9 -> true;
 is_alphanumeric(_) -> false.
