@@ -12,11 +12,11 @@ init([]) ->
                  intensity => 1,
                  period => 5},
 
-    DbHost = os:getenv("DB_HOST", "localhost"),
-    DbPort = list_to_integer(os:getenv("DB_PORT", "5432")),
-    DbUser = os:getenv("DB_USER", "postgres"),
-    DbPass = os:getenv("DB_PASS", "postgres"),
-    DbName = os:getenv("DB_NAME", "shortener"),
+    DbHost = get_env("DB_HOST", "localhost"),
+    DbPort = list_to_integer(get_env("DB_PORT", "5432")),
+    DbUser = get_env("DB_USER", "postgres"),
+    DbPass = get_env("DB_PASS", "postgres"),
+    DbName = get_env("DB_NAME", "shortener"),
 
     PoolArgs = [
         {name, {local, shortener_db_pool}},
@@ -64,3 +64,9 @@ init([]) ->
 
     ChildSpecs = [CacheSpec, PoolSpec, DistCacheSpec, ExpirySpec],
     {ok, {SupFlags, ChildSpecs}}.
+
+get_env(Key, Default) ->
+    case os:getenv(Key) of
+        false -> Default;
+        Val   -> Val
+    end.
