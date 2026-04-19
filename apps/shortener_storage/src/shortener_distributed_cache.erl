@@ -19,12 +19,12 @@ broadcast_evict(ShortCode) ->
     ok.
 
 init([]) ->
-    %% Join the process group for distributed cache ops
-    case pg:start(?CACHE_GROUP) of
+    %% Ensure the default pg scope is started
+    case pg:start(pg) of
         {ok, _} -> ok;
         {error, {already_started, _}} -> ok
     end,
-    pg:join(?CACHE_GROUP, self()),
+    pg:join(pg, ?CACHE_GROUP, self()),
     {ok, #{}}.
 
 handle_call(_Request, _From, State) ->
