@@ -54,7 +54,7 @@ extract_tag(Html, OpenTag, CloseTag) ->
         {Start, Len} ->
             Rest = binary:part(Html, Start + Len, byte_size(Html) - Start - Len),
             %% Skip to end of opening tag
-            case binary:match(Rest, <<">>") of
+            case binary:match(Rest, <<">">>) of
                 {TagEnd, _} ->
                     Content = binary:part(Rest, TagEnd + 1, byte_size(Rest) - TagEnd - 1),
                     case binary:match(Content, CloseTag) of
