@@ -12,8 +12,8 @@
 ## Increase max ports for high-connection scenarios
 +Q 65536
 
-## SMP scheduler
-+SSub true
+## SMP scheduler utilization balancing
++sub true
 
 ## Allows remote shell connection
 -kernel inet_dist_listen_min 9100
