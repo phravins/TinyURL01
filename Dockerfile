@@ -12,7 +12,7 @@ RUN rebar3 as prod tar
 
 # Extract release
 RUN mkdir -p /opt/rel
-RUN tar -zxvf _build/prod/rel/shortener_release/shortener_release-0.1.0.tar.gz -C /opt/rel
+RUN tar -zxvf _build/prod/rel/shortener_release/shortener_release-*.tar.gz -C /opt/rel
 
 # Run stage
 FROM alpine:3.19
