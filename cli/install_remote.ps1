@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 
 # Check for Administrator privileges
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host "`n  ❌ ERROR: This script MUST be run as Administrator.`n" -ForegroundColor Red
+    Write-Host "`n   ERROR: This script MUST be run as Administrator.`n" -ForegroundColor Red
     Write-Host "  To fix this: Right-click your Terminal/PowerShell and select 'Run as Administrator'.`n"
     exit 1
 }
