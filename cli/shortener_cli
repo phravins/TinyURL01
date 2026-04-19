@@ -1,286 +1,646 @@
 #!/usr/bin/env escript
 %% -*- erlang -*-
 %%
-%% shortener_cli — Cross-platform CLI for the URL Shortener
-%% Works on Windows, Linux, and macOS anywhere Erlang is installed.
-%%
-%% Usage:
-%%   shortener shorten <url> [--custom CODE] [--ttl SECONDS] [--password PWD] [--webhook URL]
-%%   shortener bulk <url1> <url2> ...
-%%   shortener stats <code>
-%%   shortener preview <code>
-%%   shortener qr <code>
-%%   shortener admin stats
-%%   shortener admin list [--page N] [--limit N]
-%%   shortener admin delete <code>
-%%   shortener admin analytics <code>
-%%   shortener config set --host HOST --port PORT [--token TOKEN]
-%%   shortener config show
-%%   shortener start
-%%   shortener web
-%%   shortener webmock
+%% shortener_cli v2.1.0 — Cross-platform CLI for URL Shortener
 %%
 -mode(compile).
 
-main([]) ->
-    print_help(),
-    halt(0);
-main(["help" | _]) ->
-    print_help(),
-    halt(0);
+-define(VERSION, "2.1.0").
+-define(GITHUB_RAW,
+    "https://raw.githubusercontent.com/phravins/TinyURL01/main/cli/shortener_cli").
+
+%% =============================================================================
+%% Entry Point
+%% =============================================================================
+
+main([])             -> print_help(), halt(0);
+main(["help"   | _]) -> print_help(), halt(0);
+main(["--help" | _]) -> print_help(), halt(0);
+main(["version"])    -> print_version(), halt(0);
+main(["--version"])  -> print_version(), halt(0);
+main(["update"])     -> do_update();
 
 %% ---- Config ----
+main(["config", "set"]) ->
+    err_msg("Usage: " ++ cy() ++ "config set --host HOST --port PORT [--token TOKEN]\n" ++
+            "            [--db-host H] [--db-port P] [--db-user U] [--db-pass P] [--db-name N]" ++ r());
 main(["config", "set" | Args]) ->
-    Cfg = parse_config_flags(Args, default_config()),
-    save_config(Cfg),
-    ok_msg("Configuration saved: ~s:~w", [maps:get(host, Cfg), maps:get(port, Cfg)]);
-
+    case parse_config_flags(Args, default_config()) of
+        {error, Reason} -> err_msg(Reason);
+        Cfg ->
+            save_config(Cfg),
+            ok_msg("Config saved  " ++ cy() ++ "~s:~w" ++ r(),
+                   [maps:get(host, Cfg), maps:get(port, Cfg)])
+    end;
 main(["config", "show"]) ->
-    Cfg = load_config(),
-    io:format("Host  : ~s~n", [maps:get(host, Cfg)]),
-    io:format("Port  : ~w~n", [maps:get(port, Cfg)]),
-    io:format("Token : ~s~n", [maps:get(token, Cfg)]);
+    print_config(load_config());
+main(["config" | Sub]) ->
+    err_msg("Unknown config subcommand: " ++ string:join(Sub, " ") ++
+            "\n     Use: " ++ cy() ++ "config set" ++ r() ++ " or " ++ cy() ++ "config show" ++ r());
 
 %% ---- Shorten ----
+main(["shorten"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener shorten <url> [--custom CODE] [--ttl SEC]" ++ r());
 main(["shorten", Url | Opts]) ->
-    Cfg   = load_config(),
-    Flags = parse_shorten_flags(Opts),
-    Body  = build_shorten_body(Url, Flags),
-    case post(Cfg, "/api/shorten", Body) of
-        {ok, #{<<"short_url">> := Short} = Resp} ->
-            io:format("~n  Short URL : ~ts~n", [Short]),
-            print_field("Expires",   maps:get(<<"expires_at">>, Resp, null)),
-            print_field("Protected", maps:get(<<"protected">>,  Resp, false)),
-            io:format("~n");
-        {error, Msg} ->
-            err_msg(Msg)
+    case validate_url(Url) of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            Cfg   = load_config(),
+            Flags = parse_shorten_flags(Opts),
+            case validate_shorten_flags(Flags) of
+                {error, Msg} -> err_msg(Msg);
+                ok ->
+                    working("Shortening URL"),
+                    case post(Cfg, "/api/shorten", build_shorten_body(Url, Flags)) of
+                        {ok, #{<<"short_url">> := Short} = Resp} ->
+                            print_shorten_result(Short, Resp);
+                        {error, M} -> err_msg(M)
+                    end
+            end
     end;
 
 %% ---- Bulk ----
-main(["bulk" | Urls]) when Urls =/= [] ->
-    Cfg  = load_config(),
-    Body = jsone_encode(#{<<"urls">> => [list_to_binary(U) || U <- Urls]}),
-    case post(Cfg, "/api/shorten", Body) of
-        {ok, #{<<"results">> := Results}} ->
-            io:format("~n"),
-            lists:foreach(fun(R) ->
-                Url   = maps:get(<<"url">>, R, <<"?">>),
-                Short = maps:get(<<"short_url">>, R, null),
-                Err   = maps:get(<<"error">>, R, null),
-                case Short of
-                    null -> io:format("  ✗  ~ts  →  ~ts~n", [Url, Err]);
-                    _    -> io:format("  ✓  ~ts  →  ~ts~n", [Url, Short])
-                end
-            end, Results),
-            io:format("~n");
-        {error, Msg} ->
-            err_msg(Msg)
+main(["bulk"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener bulk <url1> <url2> ..." ++ r());
+main(["bulk" | Urls]) ->
+    Bad = [U || U <- Urls, validate_url(U) =/= ok],
+    case Bad of
+        [_|_] ->
+            err_msg("Invalid URLs (must start with http:// or https://):\n" ++
+                    lists:concat(["     " ++ U ++ "\n" || U <- Bad]));
+        [] ->
+            Cfg  = load_config(),
+            Body = jsone_encode(#{<<"urls">> => [list_to_binary(U) || U <- Urls]}),
+            working(lists:flatten(io_lib:format("Shortening ~w URLs", [length(Urls)]))),
+            case post(Cfg, "/api/shorten", Body) of
+                {ok, #{<<"results">> := Results}} -> print_bulk_results(Results);
+                {error, M} -> err_msg(M)
+            end
     end;
 
 %% ---- Stats ----
+main(["stats"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener stats <code>" ++ r());
 main(["stats", Code]) ->
-    Cfg = load_config(),
-    case get_req(Cfg, "/api/stats/" ++ Code) of
-        {ok, R} ->
-            io:format("~n  Short Code  : ~ts~n", [maps:get(<<"short_code">>, R, <<"?">>)]),
-            io:format("  Long URL    : ~ts~n",   [maps:get(<<"long_url">>,   R, <<"?">>)]),
-            io:format("  Clicks      : ~w~n",    [maps:get(<<"click_count">>,R, 0)]),
-            io:format("  Created     : ~ts~n",   [fmt_field(maps:get(<<"created_at">>, R, null))]),
-            io:format("  Expires     : ~ts~n",   [fmt_field(maps:get(<<"expires_at">>, R, null))]),
-            io:format("  Custom      : ~ts~n~n", [fmt_field(maps:get(<<"is_custom">>,  R, false))]);
-        {error, Msg} -> err_msg(Msg)
+    case validate_code(Code) of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            Cfg = load_config(),
+            case get_req(Cfg, "/api/stats/" ++ Code) of
+                {ok, R}      -> print_stats(R);
+                {error, Msg} -> err_msg(Msg)
+            end
     end;
 
 %% ---- Preview ----
+main(["preview"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener preview <code>" ++ r());
 main(["preview", Code]) ->
-    Cfg = load_config(),
-    case get_req(Cfg, "/api/preview/" ++ Code) of
-        {ok, R} ->
-            io:format("~n  Title       : ~ts~n", [maps:get(<<"title">>,       R, <<>>)]),
-            io:format("  Description : ~ts~n",   [maps:get(<<"description">>, R, <<>>)]),
-            io:format("  OG Image    : ~ts~n",   [maps:get(<<"og_image">>,    R, <<>>)]),
-            io:format("  Long URL    : ~ts~n",   [maps:get(<<"long_url">>,    R, <<>>)]),
-            io:format("  Clicks      : ~w~n~n",  [maps:get(<<"click_count">>, R, 0)]);
-        {error, Msg} -> err_msg(Msg)
+    case validate_code(Code) of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            Cfg = load_config(),
+            case get_req(Cfg, "/api/preview/" ++ Code) of
+                {ok, R}      -> print_preview(R);
+                {error, Msg} -> err_msg(Msg)
+            end
     end;
 
-%% ---- QR Code ----
+%% ---- QR ----
+main(["qr"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener qr <code>" ++ r());
 main(["qr", Code]) ->
-    Cfg = load_config(),
-    QrUrl = base_url(Cfg) ++ "/api/qr/" ++ Code,
-    io:format("~n  QR Code URL : ~ts~n~n", [QrUrl]),
-    io:format("  Open the above URL in a browser to view your QR code.~n~n");
+    case validate_code(Code) of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            Cfg = load_config(),
+            print_qr(base_url(Cfg) ++ "/api/qr/" ++ Code)
+    end;
 
-%% ---- Admin Stats ----
+%% ---- Admin API ----
+main(["admin"]) ->
+    err_msg("admin requires a subcommand: " ++ cy() ++
+            "stats | list | delete <code> | analytics <code>" ++ r());
 main(["admin", "stats"]) ->
     Cfg = load_config(),
+    warn_default_token(Cfg),
     case admin_get(Cfg, "/api/admin/stats") of
-        {ok, R} ->
-            io:format("~n  Total URLs    : ~w~n",   [maps:get(<<"total_urls">>,    R, 0)]),
-            io:format("  Total Clicks  : ~w~n",     [maps:get(<<"total_clicks">>,  R, 0)]),
-            io:format("  New Today     : ~w~n",     [maps:get(<<"new_today">>,     R, 0)]),
-            io:format("  Top Short Code: ~ts~n~n",  [maps:get(<<"top_short_code">>,R, <<>>)]);
+        {ok, R}      -> print_admin_stats(R);
         {error, Msg} -> err_msg(Msg)
     end;
-
-%% ---- Admin List ----
 main(["admin", "list" | Opts]) ->
     Cfg   = load_config(),
+    warn_default_token(Cfg),
     Flags = parse_page_flags(Opts),
     Page  = maps:get(page,  Flags, 1),
     Limit = maps:get(limit, Flags, 10),
-    Path  = io_lib:format("/api/admin/urls?page=~w&limit=~w", [Page, Limit]),
-    case admin_get(Cfg, lists:flatten(Path)) of
-        {ok, #{<<"urls">> := Urls}} ->
-            io:format("~n  Page ~w | ~w results~n~n", [Page, length(Urls)]),
-            io:format("  ~-12s  ~-30s  ~-8s  ~s~n",
-                      ["Code", "Long URL", "Clicks", "Expires"]),
-            io:format("  ~s~n", [string:copies("-", 70)]),
-            lists:foreach(fun(U) ->
-                Code    = maps:get(<<"short_code">>,  U, <<>>),
-                Long    = truncate(maps:get(<<"long_url">>,    U, <<>>), 30),
-                Clicks  = maps:get(<<"click_count">>, U, 0),
-                Expires = fmt_field(maps:get(<<"expires_at">>, U, null)),
-                io:format("  ~-12ts  ~-30ts  ~-8w  ~ts~n", [Code, Long, Clicks, Expires])
-            end, Urls),
-            io:format("~n");
-        {error, Msg} -> err_msg(Msg)
+    Path  = lists:flatten(io_lib:format("/api/admin/urls?page=~w&limit=~w", [Page, Limit])),
+    case admin_get(Cfg, Path) of
+        {ok, #{<<"urls">> := Urls}} -> print_admin_list(Urls, Page);
+        {error, Msg}                -> err_msg(Msg)
     end;
-
-%% ---- Admin Delete ----
+main(["admin", "delete"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener admin delete <code>" ++ r());
 main(["admin", "delete", Code]) ->
-    Cfg = load_config(),
-    case admin_delete(Cfg, "/api/admin/urls/" ++ Code) of
-        {ok, _} ->
-            ok_msg("Deleted: ~s", [Code]);
-        {error, Msg} ->
-            err_msg(Msg)
+    case validate_code(Code) of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            Cfg = load_config(),
+            warn_default_token(Cfg),
+            case admin_delete(Cfg, "/api/admin/urls/" ++ Code) of
+                {ok, _}      -> ok_msg("Deleted " ++ cy() ++ "~s" ++ r(), [Code]);
+                {error, Msg} -> err_msg(Msg)
+            end
     end;
-
-%% ---- Admin Analytics ----
+main(["admin", "analytics"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener admin analytics <code>" ++ r());
 main(["admin", "analytics", Code]) ->
+    case validate_code(Code) of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            Cfg = load_config(),
+            warn_default_token(Cfg),
+            case admin_get(Cfg, "/api/admin/analytics/" ++ Code) of
+                {ok, #{<<"events">> := Events}} -> print_analytics(Events, Code);
+                {error, Msg}                    -> err_msg(Msg)
+            end
+    end;
+main(["admin" | Sub]) ->
+    err_msg("Unknown admin subcommand: " ++ cy() ++ string:join(Sub, " ") ++ r() ++
+            "\n     Valid: stats | list | delete <code> | analytics <code>");
+
+%% ---- DB (PostgreSQL Admin) ----
+main(["db"]) ->
     Cfg = load_config(),
-    case admin_get(Cfg, "/api/admin/analytics/" ++ Code) of
-        {ok, #{<<"events">> := Events}} ->
-            io:format("~n  Last ~w click events for: ~s~n~n", [length(Events), Code]),
-            io:format("  ~-15s  ~-5s  ~-15s  ~s~n", ["IP", "CC", "City", "Clicked At"]),
-            io:format("  ~s~n", [string:copies("-", 60)]),
-            lists:foreach(fun(E) ->
-                IP      = maps:get(<<"ip">>,         E, <<>>),
-                Country = maps:get(<<"country">>,    E, <<>>),
-                City    = maps:get(<<"city">>,       E, <<>>),
-                At      = maps:get(<<"clicked_at">>, E, <<>>),
-                io:format("  ~-15ts  ~-5ts  ~-15ts  ~ts~n", [IP, Country, City, At])
-            end, Events),
-            io:format("~n");
-        {error, Msg} -> err_msg(Msg)
+    io:format("~n  ~s~sDB Commands~s  ~s~s:~w~s~n~n",
+              [b(), cy(), r(), dm(), db_host(Cfg), db_port(Cfg), r()]),
+    help_cmd("db status",               "",                  "Check DB connection"),
+    help_cmd("db stats",                "",                  "Tables & row counts"),
+    help_cmd("db urls",                 "[--limit N]",       "List URLs from DB"),
+    help_cmd("db analytics",            "[--code C] [--limit N]", "Click events"),
+    help_cmd("db search <term>",        "",                  "Search URLs by keyword"),
+    help_cmd("db shell",                "",                  "Open psql session"),
+    help_cmd("db query \"<SQL>\"",      "",                  "Run raw SQL"),
+    help_cmd("db config set",           "--db-host H ...",   "Save DB connection"),
+    io:format("~n");
+
+main(["db", "status"]) ->
+    Cfg = load_config(),
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            io:format("~n  ~s⋯~s  Connecting to ~s~s:~w~s ...~n",
+                      [dm(), r(), cy(), db_host(Cfg), db_port(Cfg), r()]),
+            Out = run_psql_query(Cfg, "SELECT version();"),
+            case Out of
+                {error, E} -> err_msg(E);
+                {ok, Text} ->
+                    io:format("~n  ~s✓~s  Connected~n~n", [g(), r()]),
+                    io:format("~s~n~n", [Text])
+            end
     end;
 
-%% ---- Open Web UI ----
+main(["db", "stats"]) ->
+    Cfg = load_config(),
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            SQL = "SELECT "
+                  "'URLs'       AS table_name, COUNT(*)::text AS rows FROM urls "
+                  "UNION ALL SELECT "
+                  "'analytics'  AS table_name, COUNT(*)::text AS rows FROM analytics "
+                  "UNION ALL SELECT "
+                  "'url_meta'   AS table_name, COUNT(*)::text AS rows FROM url_meta;"
+                  " SELECT (SELECT COALESCE(SUM(click_count),0) FROM urls) AS total_clicks,"
+                  "        (SELECT COUNT(*) FROM urls WHERE created_at >= CURRENT_DATE) AS new_today,"
+                  "        (SELECT short_code FROM urls ORDER BY click_count DESC LIMIT 1) AS top_code;",
+            case run_psql_query(Cfg, SQL) of
+                {ok, Text} ->
+                    io:format("~n  ~s~sDatabase Stats~s  ~s~s:~w/~s~s~n~n",
+                              [b(), cy(), r(), dm(), db_host(Cfg), db_port(Cfg), db_name(Cfg), r()]),
+                    io:format("~s~n~n", [Text]);
+                {error, E} -> err_msg(E)
+            end
+    end;
+
+main(["db", "urls" | Opts]) ->
+    Cfg   = load_config(),
+    Flags = parse_db_flags(Opts),
+    Limit = integer_to_list(maps:get(limit, Flags, 20)),
+    SQL = "SELECT short_code, substring(long_url,1,50) AS url, "
+          "click_count, created_at::date AS created, "
+          "COALESCE(expires_at::text,'--') AS expires "
+          "FROM urls ORDER BY id DESC LIMIT " ++ Limit ++ ";",
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            case run_psql_query(Cfg, SQL) of
+                {ok, Text} ->
+                    io:format("~n  ~s~sURLs~s ~s(latest ~s)~s~n~n",
+                              [b(), cy(), r(), dm(), Limit, r()]),
+                    io:format("~s~n~n", [Text]);
+                {error, E} -> err_msg(E)
+            end
+    end;
+
+main(["db", "analytics" | Opts]) ->
+    Cfg   = load_config(),
+    Flags = parse_db_flags(Opts),
+    Limit = integer_to_list(maps:get(limit, Flags, 20)),
+    Where = case maps:get(code, Flags, undefined) of
+        undefined -> "";
+        Code      -> " WHERE short_code = '" ++ Code ++ "'"
+    end,
+    SQL = "SELECT short_code, ip_address, country, city, "
+          "clicked_at::timestamp(0) AS at "
+          "FROM analytics" ++ Where ++
+          " ORDER BY clicked_at DESC LIMIT " ++ Limit ++ ";",
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            case run_psql_query(Cfg, SQL) of
+                {ok, Text} ->
+                    io:format("~n  ~s~sAnalytics~s ~s(latest ~s)~s~n~n",
+                              [b(), cy(), r(), dm(), Limit, r()]),
+                    io:format("~s~n~n", [Text]);
+                {error, E} -> err_msg(E)
+            end
+    end;
+
+main(["db", "search"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener db search <term>" ++ r());
+main(["db", "search", Term]) ->
+    Cfg = load_config(),
+    Escaped = re:replace(Term, "'", "''", [global, {return, list}]),
+    SQL = "SELECT short_code, substring(long_url,1,60) AS url, click_count "
+          "FROM urls WHERE long_url ILIKE '%" ++ Escaped ++ "%' "
+          "OR short_code ILIKE '%" ++ Escaped ++ "%' "
+          "ORDER BY click_count DESC LIMIT 30;",
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            case run_psql_query(Cfg, SQL) of
+                {ok, Text} ->
+                    io:format("~n  ~s~sSearch:~s ~s~s~s~n~n",
+                              [b(), cy(), r(), b(), Term, r()]),
+                    io:format("~s~n~n", [Text]);
+                {error, E} -> err_msg(E)
+            end
+    end;
+
+main(["db", "query"]) ->
+    err_msg("Usage: " ++ cy() ++ "shortener db query \"<SQL>\"" ++ r());
+main(["db", "query", SQL]) ->
+    Cfg = load_config(),
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok ->
+            io:format("~n  ~s>~s  ~s~ts~s~n~n", [cy(), r(), dm(), SQL, r()]),
+            case run_psql_query(Cfg, SQL) of
+                {ok, Text}   -> io:format("~s~n~n", [Text]);
+                {error, E}   -> err_msg(E)
+            end
+    end;
+
+main(["db", "shell"]) ->
+    Cfg = load_config(),
+    case check_psql() of
+        {error, Msg} -> err_msg(Msg);
+        ok           -> open_db_shell(Cfg)
+    end;
+
+main(["db", "config", "set" | Args]) ->
+    case parse_config_flags(Args, load_config()) of
+        {error, Reason} -> err_msg(Reason);
+        Cfg ->
+            save_config(Cfg),
+            ok_msg("DB config saved  " ++ cy() ++ "~s:~w/~s" ++ r(),
+                   [db_host(Cfg), db_port(Cfg), db_name(Cfg)])
+    end;
+main(["db", "config", "show"]) ->
+    Cfg = load_config(),
+    io:format("~n"),
+    lbl("DB Host",  db_host(Cfg)),
+    lbl("DB Port",  db_port(Cfg)),
+    lbl("DB User",  db_user(Cfg)),
+    lbl("DB Pass",  string:copies("*", length(db_pass(Cfg)))),
+    lbl("DB Name",  db_name(Cfg)),
+    io:format("~n");
+
+main(["db" | Sub]) ->
+    err_msg("Unknown db subcommand: " ++ cy() ++ string:join(Sub, " ") ++ r() ++
+            "\n     Run " ++ cy() ++ "shortener db" ++ r() ++ " for available subcommands");
+
+%% ---- Dev Tools ----
 main(["web"]) ->
     Cfg = load_config(),
     Url = base_url(Cfg),
-    io:format("~n  Opening Web UI at ~s ...~n~n", [Url]),
-    open_browser(Url);
-
-%% ---- Start Production Server ----
+    case check_server(Cfg) of
+        ok ->
+            info_msg("Opening  " ++ cy() ++ b() ++ "~s" ++ r(), [Url]),
+            open_browser(Url);
+        {error, _} ->
+            io:format("~n  ~s!~s  Server not reachable at ~s~s~s~n", [y(), r(), cy(), Url, r()]),
+            io:format("  ~s   Start the real server :~s  ~s~n",
+                      [dm(), r(), cy() ++ "shortener start" ++ r()]),
+            io:format("  ~s   Or the mock server   :~s  ~s~n~n",
+                      [dm(), r(), cy() ++ "shortener webmock" ++ r()])
+    end;
 main(["start"]) ->
     case filelib:is_file("rebar.config") of
-        true ->
-            io:format("~n  Starting TinyURL Server via rebar3...~n"),
-            io:format("  (Press Ctrl+C to stop the server)~n~n"),
+        true  ->
+            info_msg("Starting server via rebar3  (Ctrl+C to stop)", []),
             os:cmd("rebar3 shell");
         false ->
-            io:format("~n  Error: rebar.config not found.~n"),
-            io:format("  Please run this command from the project root directory.~n~n")
+            err_msg("rebar.config not found — run from the project root")
     end;
-
-%% ---- Open Mock Web Server ----
 main(["webmock"]) ->
     case filelib:is_file("mock_server.py") of
         true ->
-            io:format("~n  Starting WebMock Server on port 8000...~n"),
-            io:format("  (Press Ctrl+C to stop the server)~n~n"),
+            info_msg("Starting mock server on :8000  (Ctrl+C to stop)", []),
             open_browser("http://localhost:8000"),
-            %% Try python3 first, then python
             case os:cmd("python3 --version 2>&1") of
                 "Python 3" ++ _ -> os:cmd("python3 mock_server.py");
-                _ -> os:cmd("python mock_server.py")
+                _               -> os:cmd("python mock_server.py")
             end;
         false ->
-            io:format("~n  Error: mock_server.py not found.~n"),
-            io:format("  Please run this command from the project root directory.~n~n")
+            err_msg("mock_server.py not found — run from the project root")
     end;
 
 main(Args) ->
-    io:format("~nUnknown command: ~s~n", [string:join(Args, " ")]),
-    print_help(),
+    io:format("~n  ~s✗~s  Unknown command: ~s~n", [e(), r(), string:join(Args, " ")]),
+    io:format("     Run ~s~sshortener help~s for available commands.~n~n", [b(), cy(), r()]),
     halt(1).
+
+%% =============================================================================
+%% Auto-Update
+%% =============================================================================
+
+do_update() ->
+    io:format("~n  ~s↑~s  Checking for updates  " ++ dm() ++ "(current: v~s)" ++ r() ++ "~n",
+              [cy(), r(), ?VERSION]),
+    case download_file(?GITHUB_RAW) of
+        {ok, Content} ->
+            NewVer = extract_version(Content),
+            case compare_versions(NewVer, ?VERSION) of
+                newer ->
+                    io:format("  ~s✦~s  New version: " ++ g() ++ "v~s" ++ r() ++ "~n",
+                              [y(), r(), NewVer]),
+                    write_update(Content, NewVer);
+                same ->
+                    io:format("  ~s✓~s  Already up to date " ++ cy() ++
+                              "(v~s)" ++ r() ++ "~n~n", [g(), r(), ?VERSION]);
+                older ->
+                    io:format("  ~s~s  Local v~s is ahead of remote v~s~s~n~n",
+                              [dm(), r(), ?VERSION, NewVer, r()])
+            end;
+        {error, Msg} ->
+            err_msg("Update check failed: " ++ Msg)
+    end.
+
+write_update(Content, NewVer) ->
+    Script = escript:script_name(),
+    io:format("  ~s↓~s  Writing update to ~s~s~s ...~n", [cy(), r(), b(), Script, r()]),
+    case file:write_file(Script, Content) of
+        ok ->
+            case os:type() of
+                {unix, _} -> os:cmd("chmod +x \"" ++ Script ++ "\"");
+                _         -> ok
+            end,
+            ok_msg("Updated to " ++ g() ++ "v~s" ++ r() ++ "  Restart your terminal to apply.",
+                   [NewVer]);
+        {error, eacces} ->
+            err_msg("Permission denied — try running as administrator / sudo");
+        {error, Reason} ->
+            err_msg(lists:flatten(io_lib:format("Write failed: ~p", [Reason])))
+    end.
+
+extract_version(Content) ->
+    Bin = if is_binary(Content) -> binary_to_list(Content); true -> Content end,
+    case re:run(Bin, "-define\\(VERSION,\\s*\"([0-9]+\\.[0-9]+\\.[0-9]+)\"\\)",
+                [{capture, [1], list}]) of
+        {match, [V]} -> V;
+        nomatch      -> "0.0.0"
+    end.
+
+compare_versions(A, B) ->
+    try
+        AP = [list_to_integer(X) || X <- string:split(A, ".", all)],
+        BP = [list_to_integer(X) || X <- string:split(B, ".", all)],
+        if AP > BP -> newer; AP < BP -> older; true -> same end
+    catch _:_ -> same
+    end.
+
+download_file(Url) ->
+    inets:start(),
+    ssl:start(),
+    Opts = [{timeout, 20000}, {connect_timeout, 8000}],
+    UA   = [{"User-Agent", "shortener-cli/" ++ ?VERSION}],
+    case httpc:request(get, {Url, UA}, Opts, []) of
+        {ok, {{_, 200, _}, _, Body}} -> {ok, Body};
+        {ok, {{_, Status, _}, _, _}} ->
+            {error, lists:flatten(io_lib:format("HTTP ~w from GitHub", [Status]))};
+        {error, {failed_connect, _}} ->
+            {error, "Cannot reach GitHub — check internet connection"};
+        {error, Reason} ->
+            {error, lists:flatten(io_lib:format("~p", [Reason]))}
+    end.
+
+%% =============================================================================
+%% PostgreSQL Helpers
+%% =============================================================================
+
+check_psql() ->
+    Result = string:trim(os:cmd("psql --version 2>&1")),
+    case Result of
+        "psql" ++ _ -> ok;
+        _ ->
+            {error, "psql not found in PATH\n" ++
+                    "     Install PostgreSQL client tools:\n" ++
+                    "       Windows: https://www.postgresql.org/download/windows/\n" ++
+                    "       macOS:   brew install libpq\n" ++
+                    "       Linux:   sudo apt install postgresql-client"}
+    end.
+
+run_psql_query(Cfg, SQL) ->
+    os:putenv("PGPASSWORD", db_pass(Cfg)),
+    Safe = re:replace(SQL, "\"", "\\\\\"", [global, {return, list}]),
+    Cmd  = lists:flatten(io_lib:format(
+        "psql -h ~s -p ~w -U ~s -d ~s -c \"~s\" 2>&1",
+        [db_host(Cfg), db_port(Cfg), db_user(Cfg), db_name(Cfg), Safe])),
+    Output = string:trim(os:cmd(Cmd)),
+    case Output of
+        "psql: error" ++ _ ->
+            {error, "psql error: " ++ Output};
+        "psql: fatal" ++ _ ->
+            {error, "DB connection failed: " ++ Output};
+        "ERROR:" ++ _ ->
+            {error, "SQL error: " ++ Output};
+        _ ->
+            {ok, Output}
+    end.
+
+open_db_shell(Cfg) ->
+    Host = db_host(Cfg),
+    Port = integer_to_list(db_port(Cfg)),
+    User = db_user(Cfg),
+    Name = db_name(Cfg),
+    ConnCmd = lists:flatten(io_lib:format(
+        "psql -h ~s -p ~s -U ~s -d ~s", [Host, Port, User, Name])),
+    io:format("~n  ~s~spsql session~s  ~s~s:~s/~s~s~n~n",
+              [b(), cy(), r(), dm(), Host, Port, Name, r()]),
+    io:format("  Run this command in your terminal:~n~n"),
+    io:format("    ~s~s~s~n~n", [cy(), ConnCmd, r()]),
+    io:format("  ~s(Set PGPASSWORD=~s before running if password is required)~s~n~n",
+              [dm(), db_pass(Cfg), r()]),
+    case os:type() of
+        {win32, _} ->
+            SetPwd = "set PGPASSWORD=" ++ db_pass(Cfg) ++ " && " ++ ConnCmd,
+            os:cmd("start cmd /k \"" ++ SetPwd ++ "\""),
+            info_msg("Opened a new cmd window with psql", []);
+        _ ->
+            ok
+    end.
+
+db_host(Cfg) -> maps:get(db_host, Cfg, "localhost").
+db_port(Cfg) -> maps:get(db_port, Cfg, 5432).
+db_user(Cfg) -> maps:get(db_user, Cfg, "postgres").
+db_pass(Cfg) -> maps:get(db_pass, Cfg, "postgres").
+db_name(Cfg) -> maps:get(db_name, Cfg, "shortener").
+
+%% =============================================================================
+%% Server Check
+%% =============================================================================
+
+check_server(Cfg) ->
+    inets:start(),
+    Url  = base_url(Cfg),
+    Opts = [{timeout, 2000}, {connect_timeout, 1500}],
+    case httpc:request(get, {Url, []}, Opts, []) of
+        {ok, _} -> ok;
+        _       -> {error, unreachable}
+    end.
+
+%% =============================================================================
+%% Validation
+%% =============================================================================
+
+validate_url("") ->
+    {error, "URL cannot be empty"};
+validate_url("http://" ++ [_|_])  -> ok;
+validate_url("https://" ++ [_|_]) -> ok;
+validate_url(Url) ->
+    {error, "URL must start with " ++ cy() ++ "http://" ++ r() ++ " or " ++
+            cy() ++ "https://" ++ r() ++ "\n     Got: " ++ Url}.
+
+validate_code("") ->
+    {error, "Short code cannot be empty"};
+validate_code(Code) ->
+    case re:run(Code, "^[a-zA-Z0-9_-]+$") of
+        {match, _} -> ok;
+        nomatch    ->
+            {error, "Invalid code — use only letters, numbers, - and _"}
+    end.
+
+validate_shorten_flags(Flags) ->
+    case maps:get(ttl, Flags, undefined) of
+        undefined            -> ok;
+        N when is_integer(N), N > 0 -> ok;
+        _ -> {error, "--ttl must be a positive integer (seconds)"}
+    end.
+
+warn_default_token(Cfg) ->
+    case maps:get(token, Cfg, "change_me_in_production") of
+        "change_me_in_production" ->
+            io:format("  ~s!~s  Using default token — set with: ~s~n~n",
+                      [y(), r(),
+                       cy() ++ "shortener config set --token YOUR_TOKEN" ++ r()]);
+        _ -> ok
+    end.
 
 %% =============================================================================
 %% HTTP Helpers
 %% =============================================================================
 
 post(Cfg, Path, Body) ->
-    Url = base_url(Cfg) ++ Path,
-    Headers = [{"Content-Type", "application/json"}],
-    http_req(post, Url, Headers, Body).
+    http_req(post, base_url(Cfg) ++ Path,
+             [{"Content-Type", "application/json"}], Body).
 
 get_req(Cfg, Path) ->
-    Url = base_url(Cfg) ++ Path,
-    http_req(get, Url, [], "").
+    http_req(get, base_url(Cfg) ++ Path, [], "").
 
 admin_get(Cfg, Path) ->
-    Url = base_url(Cfg) ++ Path,
     Token = maps:get(token, Cfg, ""),
-    Headers = [{"X-Admin-Token", Token}],
-    http_req(get, Url, Headers, "").
+    http_req(get, base_url(Cfg) ++ Path, [{"X-Admin-Token", Token}], "").
 
 admin_delete(Cfg, Path) ->
-    Url = base_url(Cfg) ++ Path,
     Token = maps:get(token, Cfg, ""),
-    Headers = [{"X-Admin-Token", Token}],
-    http_req(delete, Url, Headers, "").
+    http_req(delete, base_url(Cfg) ++ Path, [{"X-Admin-Token", Token}], "").
 
 http_req(Method, Url, Headers, Body) ->
     inets:start(),
     ssl:start(),
     Request = case Method of
+        post   -> {Url, Headers, "application/json", Body};
         get    -> {Url, Headers};
-        delete -> {Url, Headers};
-        post   -> {Url, Headers, "application/json", Body}
+        delete -> {Url, Headers}
     end,
     Opts = [{timeout, 10000}, {connect_timeout, 5000}],
     case httpc:request(Method, Request, Opts, []) of
         {ok, {{_, Status, _}, _, RespBody}} ->
-            case jsone_decode(list_to_binary(RespBody)) of
-                {ok, Decoded} ->
-                    if Status >= 200, Status < 300 -> {ok, Decoded};
-                       Status =:= 429 -> {error, "Rate limited — slow down"};
-                       Status =:= 401 -> {error, "Unauthorized — set token via: shortener config set --token TOKEN"};
-                       Status =:= 403 -> {error, "Forbidden — wrong password"};
-                       Status =:= 404 -> {error, "Not found"};
-                       true ->
-                            Err = maps:get(<<"error">>, Decoded, <<"Unknown error">>),
-                            {error, binary_to_list(Err)}
-                    end;
-                {error, _} ->
-                    {error, "Invalid response from server"}
-            end;
+            decode_response(Status, list_to_binary(RespBody));
         {error, {failed_connect, _}} ->
             Cfg = load_config(),
-            {error, "Cannot connect to " ++ base_url(Cfg) ++ " — is the server running?"};
+            {error, "Cannot connect to " ++ base_url(Cfg) ++
+                    "\n     Is the server running?  Start it: " ++
+                    cy() ++ "shortener start" ++ r()};
+        {error, timeout} ->
+            {error, "Request timed out (10s) — server may be overloaded"};
         {error, Reason} ->
-            {error, io_lib:format("HTTP error: ~p", [Reason])}
+            {error, lists:flatten(io_lib:format("HTTP error: ~p", [Reason]))}
+    end.
+
+decode_response(Status, Body) ->
+    case jsone_decode(Body) of
+        {ok, Decoded} ->
+            if Status >= 200, Status < 300 ->
+                    {ok, Decoded};
+               Status =:= 400 ->
+                    Err = maps:get(<<"error">>, Decoded, <<"Bad request">>),
+                    {error, binary_to_list(Err)};
+               Status =:= 401 ->
+                    {error, "Unauthorized — set token: " ++ cy() ++
+                            "shortener config set --token TOKEN" ++ r()};
+               Status =:= 403 ->
+                    {error, "Forbidden — wrong password or insufficient permissions"};
+               Status =:= 404 ->
+                    {error, "Not found — check the short code is correct"};
+               Status =:= 409 ->
+                    {error, "Conflict — code already taken, try a different " ++
+                            cy() ++ "--custom CODE" ++ r()};
+               Status =:= 422 ->
+                    Err = maps:get(<<"error">>, Decoded, <<"Unprocessable entity">>),
+                    {error, binary_to_list(Err)};
+               Status =:= 429 ->
+                    {error, "Rate limited — slow down and try again shortly"};
+               Status >= 500 ->
+                    {error, lists:flatten(
+                        io_lib:format("Server error (~w) — check server logs", [Status]))};
+               true ->
+                    Err = maps:get(<<"error">>, Decoded, <<"Unknown error">>),
+                    {error, binary_to_list(Err)}
+            end;
+        {error, _} ->
+            {error, lists:flatten(io_lib:format(
+                "Unexpected response (HTTP ~w) — is this a shortener server?", [Status]))}
     end.
 
 %% =============================================================================
-%% JSON Helpers (self-contained, no dep on jsone)
+%% JSON Helpers
 %% =============================================================================
 
 jsone_decode(Bin) ->
     try
-        %% Use jsone if compiled into escript, else fall back to basic parsing
         case code:ensure_loaded(jsone) of
             {module, jsone} -> {ok, jsone:decode(Bin)};
             _               -> simple_json_decode(Bin)
@@ -295,25 +655,18 @@ jsone_encode(Map) ->
         _               -> simple_json_encode(Map)
     end.
 
-%% Minimal JSON decoder for simple flat objects (covers all server responses)
 simple_json_decode(Bin) ->
     try
-        Str = binary_to_list(Bin),
-        %% Parse using Erlang term evaluation trick on well-known patterns
-        {ok, parse_json_object(string:trim(Str))}
+        {ok, parse_json_object(string:trim(binary_to_list(Bin)))}
     catch _:_ ->
         {error, bad_json}
     end.
 
-parse_json_object("{" ++ Rest) ->
-    parse_pairs(Rest, #{});
-parse_json_object("[" ++ Rest) ->
-    parse_array(Rest, []);
-parse_json_object("\"" ++ Rest) ->
-    {Val, _} = parse_string(Rest),
-    Val;
-parse_json_object("null" ++ _) -> null;
-parse_json_object("true" ++ _) -> true;
+parse_json_object("{" ++ Rest)  -> parse_pairs(Rest, #{});
+parse_json_object("[" ++ Rest)  -> parse_array(Rest, []);
+parse_json_object("\"" ++ Rest) -> {Val, _} = parse_string(Rest), Val;
+parse_json_object("null"  ++ _) -> null;
+parse_json_object("true"  ++ _) -> true;
 parse_json_object("false" ++ _) -> false;
 parse_json_object(S) ->
     {match, [N]} = re:run(S, "^-?[0-9]+", [{capture, all, list}]),
@@ -324,7 +677,7 @@ parse_pairs(S, Map) ->
     S1 = skip_ws(S),
     {Key, S2} = case S1 of
         "\"" ++ R -> parse_string(R);
-        _ -> {<<"">>, S1}
+        _         -> {<<"">>, S1}
     end,
     S3 = skip_ws(skip_char($:, skip_ws(S2))),
     {Val, S4} = parse_value(S3),
@@ -338,190 +691,479 @@ parse_array(S, Acc) ->
     S3 = skip_ws(skip_optional_comma(S2)),
     parse_array(S3, [Val | Acc]).
 
-parse_value("\"" ++ R) -> parse_string(R);
-parse_value("{" ++ R)  -> M = parse_pairs(R, #{}), {M, ""};
-parse_value("[" ++ R)  -> A = parse_array(R, []), {A, ""};
-parse_value("null" ++ R) -> {null, R};
-parse_value("true" ++ R) -> {true, R};
+parse_value("\"" ++ R)    -> parse_string(R);
+parse_value("{" ++ R)     -> {parse_pairs(R, #{}), ""};
+parse_value("[" ++ R)     -> {parse_array(R, []), ""};
+parse_value("null"  ++ R) -> {null,  R};
+parse_value("true"  ++ R) -> {true,  R};
 parse_value("false" ++ R) -> {false, R};
 parse_value(S) ->
     {match, [{0, L}]} = re:run(S, "^-?[0-9]+", [{capture, first, index}]),
     {list_to_integer(string:substr(S, 1, L)), string:substr(S, L+1)}.
 
 parse_string(S) -> parse_string(S, []).
-parse_string("\"" ++ R, Acc) -> {list_to_binary(lists:reverse(Acc)), R};
+parse_string("\"" ++ R, Acc)       -> {list_to_binary(lists:reverse(Acc)), R};
 parse_string("\\" ++ [C | R], Acc) -> parse_string(R, [C | Acc]);
-parse_string([C | R], Acc) -> parse_string(R, [C | Acc]).
+parse_string([C | R], Acc)         -> parse_string(R, [C | Acc]).
 
-skip_ws([$ |R]) -> skip_ws(R);
+skip_ws([$ |R])  -> skip_ws(R);
 skip_ws([$\n|R]) -> skip_ws(R);
 skip_ws([$\r|R]) -> skip_ws(R);
 skip_ws([$\t|R]) -> skip_ws(R);
-skip_ws(S) -> S.
+skip_ws(S)       -> S.
 
 skip_char(C, [C|R]) -> R;
-skip_char(_, S) -> S.
+skip_char(_, S)     -> S.
 
 skip_optional_comma([$,|R]) -> R;
-skip_optional_comma(S) -> S.
+skip_optional_comma(S)      -> S.
 
 simple_json_encode(Map) when is_map(Map) ->
     Pairs = maps:fold(fun(K, V, Acc) ->
-        KStr = io_lib:format("\"~ts\"", [K]),
-        [KStr ++ ": " ++ simple_json_encode(V) | Acc]
+        [lists:flatten(io_lib:format("\"~ts\": ~s", [K, simple_json_encode(V)])) | Acc]
     end, [], Map),
     "{" ++ string:join(Pairs, ", ") ++ "}";
 simple_json_encode(List) when is_list(List) ->
-    Items = [simple_json_encode(I) || I <- List],
-    "[" ++ string:join(Items, ", ") ++ "]";
-simple_json_encode(B) when is_binary(B) ->
-    "\"" ++ binary_to_list(B) ++ "\"";
-simple_json_encode(I) when is_integer(I) ->
-    integer_to_list(I);
+    "[" ++ string:join([simple_json_encode(I) || I <- List], ", ") ++ "]";
+simple_json_encode(B) when is_binary(B)  -> "\"" ++ binary_to_list(B) ++ "\"";
+simple_json_encode(I) when is_integer(I) -> integer_to_list(I);
 simple_json_encode(true)  -> "true";
 simple_json_encode(false) -> "false";
 simple_json_encode(null)  -> "null".
 
 %% =============================================================================
-%% Config File
+%% Config
 %% =============================================================================
 
 config_path() ->
     Home = case os:getenv("HOME") of
-        false -> case os:getenv("USERPROFILE") of
-                     false -> ".";
-                     P -> P
-                 end;
+        false ->
+            case os:getenv("USERPROFILE") of
+                false -> ".";
+                P     -> P
+            end;
         H -> H
     end,
     filename:join(Home, ".shortener.conf").
 
 default_config() ->
-    #{host => "localhost", port => 8080, token => "change_me_in_production"}.
+    #{host    => "localhost",
+      port    => 8080,
+      token   => "change_me_in_production",
+      db_host => "localhost",
+      db_port => 5432,
+      db_user => "postgres",
+      db_pass => "postgres",
+      db_name => "shortener"}.
 
 load_config() ->
-    Path = config_path(),
-    case file:consult(Path) of
+    case file:consult(config_path()) of
         {ok, [Terms]} ->
-            Host  = proplists:get_value(host,  Terms, "localhost"),
-            Port  = proplists:get_value(port,  Terms, 8080),
-            Token = proplists:get_value(token, Terms, "change_me_in_production"),
-            #{host => Host, port => Port, token => Token};
+            #{host    => proplists:get_value(host,    Terms, "localhost"),
+              port    => proplists:get_value(port,    Terms, 8080),
+              token   => proplists:get_value(token,   Terms, "change_me_in_production"),
+              db_host => proplists:get_value(db_host, Terms, "localhost"),
+              db_port => proplists:get_value(db_port, Terms, 5432),
+              db_user => proplists:get_value(db_user, Terms, "postgres"),
+              db_pass => proplists:get_value(db_pass, Terms, "postgres"),
+              db_name => proplists:get_value(db_name, Terms, "shortener")};
         _ ->
             default_config()
     end.
 
-save_config(#{host := Host, port := Port, token := Token}) ->
-    Terms = io_lib:format("[{host, ~p}, {port, ~w}, {token, ~p}].~n",
-                          [Host, Port, Token]),
+save_config(#{host := Host, port := Port, token := Token,
+              db_host := DbHost, db_port := DbPort,
+              db_user := DbUser, db_pass := DbPass, db_name := DbName}) ->
+    Terms = io_lib:format(
+        "[{host,~p},{port,~w},{token,~p},"
+        "{db_host,~p},{db_port,~w},{db_user,~p},{db_pass,~p},{db_name,~p}].~n",
+        [Host, Port, Token, DbHost, DbPort, DbUser, DbPass, DbName]),
     file:write_file(config_path(), Terms).
 
 parse_config_flags([], Cfg) -> Cfg;
-parse_config_flags(["--host", H | R], Cfg) -> parse_config_flags(R, Cfg#{host => H});
-parse_config_flags(["--port", P | R], Cfg) -> parse_config_flags(R, Cfg#{port => list_to_integer(P)});
-parse_config_flags(["--token", T | R], Cfg) -> parse_config_flags(R, Cfg#{token => T});
-parse_config_flags([_ | R], Cfg) -> parse_config_flags(R, Cfg).
+parse_config_flags(["--host",    H | R], Cfg) -> parse_config_flags(R, Cfg#{host    => H});
+parse_config_flags(["--token",   T | R], Cfg) -> parse_config_flags(R, Cfg#{token   => T});
+parse_config_flags(["--db-host", H | R], Cfg) -> parse_config_flags(R, Cfg#{db_host => H});
+parse_config_flags(["--db-user", U | R], Cfg) -> parse_config_flags(R, Cfg#{db_user => U});
+parse_config_flags(["--db-pass", P | R], Cfg) -> parse_config_flags(R, Cfg#{db_pass => P});
+parse_config_flags(["--db-name", N | R], Cfg) -> parse_config_flags(R, Cfg#{db_name => N});
+parse_config_flags(["--port", P | R], Cfg) ->
+    case catch list_to_integer(P) of
+        {'EXIT', _}           -> {error, "--port must be a number, got: " ++ P};
+        N when N < 1; N > 65535 -> {error, "--port must be 1–65535"};
+        N -> parse_config_flags(R, Cfg#{port => N})
+    end;
+parse_config_flags(["--db-port", P | R], Cfg) ->
+    case catch list_to_integer(P) of
+        {'EXIT', _}           -> {error, "--db-port must be a number, got: " ++ P};
+        N when N < 1; N > 65535 -> {error, "--db-port must be 1–65535"};
+        N -> parse_config_flags(R, Cfg#{db_port => N})
+    end;
+parse_config_flags([U | R], Cfg) ->
+    io:format("  ~s!~s  Unknown flag ignored: ~s~n", [y(), r(), U]),
+    parse_config_flags(R, Cfg).
 
 %% =============================================================================
 %% Flag Parsers
 %% =============================================================================
 
-parse_shorten_flags(Args) ->
-    parse_shorten_flags(Args, #{}).
-
+parse_shorten_flags(Args) -> parse_shorten_flags(Args, #{}).
 parse_shorten_flags([], Acc) -> Acc;
-parse_shorten_flags(["--custom",  V | R], Acc) -> parse_shorten_flags(R, Acc#{custom_code => V});
-parse_shorten_flags(["--ttl",     V | R], Acc) -> parse_shorten_flags(R, Acc#{ttl => list_to_integer(V)});
-parse_shorten_flags(["--password",V | R], Acc) -> parse_shorten_flags(R, Acc#{password => V});
-parse_shorten_flags(["--webhook", V | R], Acc) -> parse_shorten_flags(R, Acc#{webhook_url => V});
-parse_shorten_flags([_ | R], Acc) -> parse_shorten_flags(R, Acc).
+parse_shorten_flags(["--custom",   V | R], Acc) ->
+    parse_shorten_flags(R, Acc#{custom_code => V});
+parse_shorten_flags(["--ttl", V | R], Acc) ->
+    case catch list_to_integer(V) of
+        {'EXIT', _} ->
+            io:format("  ~s!~s  --ttl must be a number, ignoring~n", [y(), r()]),
+            parse_shorten_flags(R, Acc);
+        N -> parse_shorten_flags(R, Acc#{ttl => N})
+    end;
+parse_shorten_flags(["--password", V | R], Acc) ->
+    parse_shorten_flags(R, Acc#{password => V});
+parse_shorten_flags(["--webhook",  V | R], Acc) ->
+    parse_shorten_flags(R, Acc#{webhook_url => V});
+parse_shorten_flags([U | R], Acc) ->
+    io:format("  ~s!~s  Unknown flag ignored: ~s~n", [y(), r(), U]),
+    parse_shorten_flags(R, Acc).
 
-parse_page_flags(Args) ->
-    parse_page_flags(Args, #{}).
+parse_page_flags(Args) -> parse_page_flags(Args, #{}).
 parse_page_flags([], Acc) -> Acc;
-parse_page_flags(["--page",  V | R], Acc) -> parse_page_flags(R, Acc#{page  => list_to_integer(V)});
-parse_page_flags(["--limit", V | R], Acc) -> parse_page_flags(R, Acc#{limit => list_to_integer(V)});
+parse_page_flags(["--page", V | R], Acc) ->
+    case catch list_to_integer(V) of
+        {'EXIT', _} ->
+            io:format("  ~s!~s  --page must be a number~n", [y(), r()]),
+            parse_page_flags(R, Acc);
+        N -> parse_page_flags(R, Acc#{page => N})
+    end;
+parse_page_flags(["--limit", V | R], Acc) ->
+    case catch list_to_integer(V) of
+        {'EXIT', _} ->
+            io:format("  ~s!~s  --limit must be a number~n", [y(), r()]),
+            parse_page_flags(R, Acc);
+        N -> parse_page_flags(R, Acc#{limit => N})
+    end;
 parse_page_flags([_ | R], Acc) -> parse_page_flags(R, Acc).
 
+parse_db_flags(Args) -> parse_db_flags(Args, #{}).
+parse_db_flags([], Acc) -> Acc;
+parse_db_flags(["--limit", V | R], Acc) ->
+    case catch list_to_integer(V) of
+        {'EXIT', _} ->
+            io:format("  ~s!~s  --limit must be a number~n", [y(), r()]),
+            parse_db_flags(R, Acc);
+        N -> parse_db_flags(R, Acc#{limit => N})
+    end;
+parse_db_flags(["--code", V | R], Acc) ->
+    parse_db_flags(R, Acc#{code => V});
+parse_db_flags([_ | R], Acc) -> parse_db_flags(R, Acc).
+
 build_shorten_body(Url, Flags) ->
-    Base = #{<<"url">> => list_to_binary(Url)},
-    M0 = case maps:get(custom_code,  Flags, undefined) of
-           undefined -> Base;
-           V0 -> Base#{<<"custom_code">> => list_to_binary(V0)}
+    M  = #{<<"url">> => list_to_binary(Url)},
+    M1 = case maps:get(custom_code, Flags, undefined) of
+             undefined -> M;
+             V -> M#{<<"custom_code">> => list_to_binary(V)}
          end,
-    M1 = case maps:get(ttl, Flags, undefined) of
-           undefined -> M0;
-           V1 -> M0#{<<"ttl">> => V1}
+    M2 = case maps:get(ttl, Flags, undefined) of
+             undefined -> M1;
+             V -> M1#{<<"ttl">> => V}
          end,
-    M2 = case maps:get(password, Flags, undefined) of
-           undefined -> M1;
-           V2 -> M1#{<<"password">> => list_to_binary(V2)}
+    M3 = case maps:get(password, Flags, undefined) of
+             undefined -> M2;
+             V -> M2#{<<"password">> => list_to_binary(V)}
          end,
-    M3 = case maps:get(webhook_url, Flags, undefined) of
-           undefined -> M2;
-           V3 -> M2#{<<"webhook_url">> => list_to_binary(V3)}
+    M4 = case maps:get(webhook_url, Flags, undefined) of
+             undefined -> M3;
+             V -> M3#{<<"webhook_url">> => list_to_binary(V)}
          end,
-    jsone_encode(M3).
+    jsone_encode(M4).
+
+%% =============================================================================
+%% ANSI Colour Helpers
+%% =============================================================================
+
+ansi() ->
+    case get(ansi) of
+        undefined ->
+            S = detect_ansi(),
+            put(ansi, S),
+            S;
+        S -> S
+    end.
+
+detect_ansi() ->
+    case os:getenv("NO_COLOR") of
+        false -> check_terminal();
+        _     -> false
+    end.
+
+check_terminal() ->
+    case os:type() of
+        {win32, _} ->
+            os:getenv("WT_SESSION")   =/= false orelse
+            os:getenv("ConEmuANSI")   =/= false orelse
+            os:getenv("ANSICON")      =/= false orelse
+            os:getenv("TERM_PROGRAM") =/= false orelse
+            os:getenv("TERM")         =/= false;
+        _ ->
+            os:getenv("TERM") =/= false orelse os:getenv("COLORTERM") =/= false
+    end.
+
+col(Code) -> case ansi() of true -> Code; false -> "" end.
+
+r()  -> col("\e[0m").
+b()  -> col("\e[1m").
+dm() -> col("\e[2m").
+e()  -> col("\e[91m").
+g()  -> col("\e[92m").
+y()  -> col("\e[93m").
+cy() -> col("\e[96m").
 
 %% =============================================================================
 %% Output Helpers
 %% =============================================================================
 
+ok_msg(Fmt, Args) ->
+    io:format("~n  ~s✓~s  " ++ Fmt ++ "~n~n", [g(), r() | Args]).
+
+err_msg(Msg) ->
+    io:format("~n  ~s✗  Error:~s ~ts~n~n", [e(), r(), Msg]),
+    halt(1).
+
+info_msg(Fmt, Args) ->
+    io:format("  ~s→~s  " ++ Fmt ++ "~n", [cy(), r() | Args]).
+
+working(What) ->
+    io:format("  ~s⋯~s  ~ts~n", [dm(), r(), lists:flatten(What)]).
+
 base_url(#{host := H, port := P}) ->
     "http://" ++ H ++ ":" ++ integer_to_list(P).
 
-ok_msg(Fmt, Args) ->
-    io:format("~n  ✓  " ++ Fmt ++ "~n~n", Args).
+lbl(_, null)      -> ok;
+lbl(_, undefined) -> ok;
+lbl(Label, Val) ->
+    io:format("  ~s~-16s~s ~ts~n", [dm(), Label, r(), fmt_val(Val)]).
 
-err_msg(Msg) ->
-    io:format("~n  ✗  Error: ~ts~n~n", [Msg]),
-    halt(1).
+fmt_val(null)      -> dm() ++ "--" ++ r();
+fmt_val(undefined) -> dm() ++ "--" ++ r();
+fmt_val(true)      -> g()  ++ "yes" ++ r();
+fmt_val(false)     -> dm() ++ "no"  ++ r();
+fmt_val(B) when is_binary(B)  -> binary_to_list(B);
+fmt_val(I) when is_integer(I) -> integer_to_list(I);
+fmt_val(S) when is_list(S)    -> S;
+fmt_val(V) -> lists:flatten(io_lib:format("~p", [V])).
 
-print_field(_, null)      -> ok;
-print_field(_, undefined) -> ok;
-print_field(Label, Val)   ->
-    io:format("  ~-10s : ~ts~n", [Label, fmt_field(Val)]).
-
-fmt_field(null)      -> <<"—">>;
-fmt_field(undefined) -> <<"—">>;
-fmt_field(true)      -> <<"yes">>;
-fmt_field(false)     -> <<"no">>;
-fmt_field(B) when is_binary(B) -> B;
-fmt_field(I) when is_integer(I) -> integer_to_binary(I);
-fmt_field(V) -> list_to_binary(io_lib:format("~p", [V])).
-
-truncate(B, Max) when is_binary(B) ->
-    S = binary_to_list(B),
-    if length(S) > Max -> string:substr(S, 1, Max - 3) ++ "...";
-       true -> S
+pad_to(S, N) ->
+    Str = if is_binary(S) -> binary_to_list(S); true -> lists:flatten(S) end,
+    Len = length(Str),
+    if Len >= N -> string:substr(Str, 1, N);
+       true     -> Str ++ string:copies(" ", N - Len)
     end.
 
-print_help() ->
-    io:format("~n"),
-    io:format("  shortener — URL Shortener CLI~n"),
-    io:format("  ─────────────────────────────────────────────────────~n"),
-    io:format("  Commands:~n"),
-    io:format("    shorten <url> [--custom CODE] [--ttl SEC] [--password PWD] [--webhook URL]~n"),
-    io:format("    bulk <url1> <url2> ...~n"),
-    io:format("    stats <code>~n"),
-    io:format("    preview <code>~n"),
-    io:format("    qr <code>~n"),
-    io:format("    admin stats~n"),
-    io:format("    admin list [--page N] [--limit N]~n"),
-    io:format("    admin delete <code>~n"),
-    io:format("    admin analytics <code>~n"),
-    io:format("    config set --host HOST --port PORT [--token TOKEN]~n"),
-    io:format("    config show~n"),
-    io:format("    start~n"),
-    io:format("    web~n"),
-    io:format("    webmock~n"),
-    io:format("  ─────────────────────────────────────────────────────~n"),
-    io:format("  Config file: ~~/.shortener.conf~n~n").
+bin_str(B) when is_binary(B)  -> binary_to_list(B);
+bin_str(S) when is_list(S)    -> lists:flatten(S);
+bin_str(I) when is_integer(I) -> integer_to_list(I);
+bin_str(true)  -> "yes";
+bin_str(false) -> "no";
+bin_str(null)  -> "--";
+bin_str(_)     -> "".
+
+truncate(B, Max) when is_binary(B) -> truncate(binary_to_list(B), Max);
+truncate(S, Max) when is_list(S) ->
+    F = lists:flatten(S),
+    if length(F) > Max -> string:substr(F, 1, Max - 3) ++ "...";
+       true            -> F
+    end.
 
 open_browser(Url) ->
+    Quoted = "\"" ++ Url ++ "\"",
     case os:type() of
-        {win32, _} -> os:cmd("start " ++ Url);
-        {unix, darwin} -> os:cmd("open " ++ Url);
-        {unix, linux} -> os:cmd("xdg-open " ++ Url);
-        _ -> io:format("  Please navigate to ~s manually.~n", [Url])
+        {win32, _}     -> os:cmd("cmd /c start \"\" " ++ Quoted);
+        {unix, darwin} -> os:cmd("open " ++ Quoted);
+        {unix, _}      -> os:cmd("xdg-open " ++ Quoted);
+        _              -> io:format("  Navigate to: ~s~n", [Url])
     end.
+
+%% =============================================================================
+%% Print Functions
+%% =============================================================================
+
+print_version() ->
+    io:format("~n  ~s~sshortener~s ~s~sv~s~s~n",
+              [b(), cy(), r(), b(), g(), ?VERSION, r()]),
+    io:format("  ~sCross-platform URL Shortener CLI~s~n~n", [dm(), r()]).
+
+print_help() ->
+    Br = "  " ++ string:copies("-", 56),
+    io:format("~n"),
+    io:format("  ~s~sshortener~s ~sv~s~s  -- URL Shortener CLI~n",
+              [b(), cy(), r(), g(), ?VERSION, r()]),
+    io:format("~s~n~n", [Br]),
+    io:format("  ~s~sCORE~s~n", [b(), cy(), r()]),
+    help_cmd("shorten <url>",
+             "--custom CODE --ttl SEC --password PWD",
+             "Shorten a URL"),
+    help_cmd("bulk <url...>", "", "Shorten multiple URLs at once"),
+    io:format("~n"),
+    io:format("  ~s~sINFO~s~n", [b(), cy(), r()]),
+    help_cmd("stats <code>",   "", "Click statistics"),
+    help_cmd("preview <code>", "", "Preview destination (OG data)"),
+    help_cmd("qr <code>",      "", "Get QR code image URL"),
+    io:format("~n"),
+    io:format("  ~s~sADMIN API~s ~srequires --token~s~n", [b(), cy(), r(), dm(), r()]),
+    help_cmd("admin stats",            "",               "Global server stats"),
+    help_cmd("admin list",             "--page N --limit N", "Paginated URL list"),
+    help_cmd("admin delete <code>",    "",               "Delete a short URL"),
+    help_cmd("admin analytics <code>", "",               "Click analytics"),
+    io:format("~n"),
+    io:format("  ~s~sDB~s ~sPostgreSQL direct access~s~n", [b(), cy(), r(), dm(), r()]),
+    help_cmd("db status",              "",               "Check DB connection"),
+    help_cmd("db stats",               "",               "Tables & row counts"),
+    help_cmd("db urls",                "[--limit N]",    "List URLs from DB"),
+    help_cmd("db analytics",           "[--code C] [--limit N]", "Click events"),
+    help_cmd("db search <term>",       "",               "Search URLs"),
+    help_cmd("db shell",               "",               "Open psql session"),
+    help_cmd("db query \"<SQL>\"",     "",               "Run raw SQL"),
+    io:format("~n"),
+    io:format("  ~s~sCONFIG~s~n", [b(), cy(), r()]),
+    help_cmd("config set",  "--host H --port P --token T --db-host H ...", "Save settings"),
+    help_cmd("config show", "",                                             "Show settings"),
+    io:format("~n"),
+    io:format("  ~s~sOTHER~s~n", [b(), cy(), r()]),
+    help_cmd("start",   "", "Start local server (rebar3)"),
+    help_cmd("web",     "", "Open web UI in browser"),
+    help_cmd("webmock", "", "Start Python mock server"),
+    help_cmd("update",  "", "Update CLI to latest version"),
+    help_cmd("version", "", "Show version info"),
+    io:format("~n~s~n", [Br]),
+    io:format("  ~sConfig: ~/.shortener.conf~s~n~n", [dm(), r()]).
+
+help_cmd(Cmd, Opts, Desc) ->
+    Full = case Opts of "" -> Cmd; _ -> Cmd ++ " " ++ Opts end,
+    io:format("    ~s~s~s  ~s~s~s~n",
+              [cy(), pad_to(Full, 50), r(), dm(), Desc, r()]).
+
+print_shorten_result(Short, Resp) ->
+    io:format("~n  ~s✓~s  ~s~s~ts~s~n", [g(), r(), b(), cy(), Short, r()]),
+    case maps:get(<<"expires_at">>, Resp, null) of
+        null -> ok;
+        Exp  -> io:format("  ~s   Expires~s    ~ts~n", [dm(), r(), Exp])
+    end,
+    case maps:get(<<"protected">>, Resp, false) of
+        true -> io:format("  ~s   Protected~s  yes~n", [dm(), r()]);
+        _    -> ok
+    end,
+    io:format("~n").
+
+print_bulk_results(Results) ->
+    Good = length([R || R <- Results, maps:get(<<"short_url">>, R, null) =/= null]),
+    Bad  = length(Results) - Good,
+    BCol = if Bad > 0 -> e(); true -> dm() end,
+    io:format("~n  ~s~w shortened~s  ~s~w failed~s~n~n",
+              [g(), Good, r(), BCol, Bad, r()]),
+    lists:foreach(fun(R) ->
+        Url   = maps:get(<<"url">>,       R, <<"?">>),
+        Short = maps:get(<<"short_url">>, R, null),
+        Err   = maps:get(<<"error">>,     R, <<"unknown error">>),
+        case Short of
+            null ->
+                io:format("  ~s✗~s  ~ts~n     ~s~ts~s~n",
+                          [e(), r(), Url, dm(), Err, r()]);
+            _ ->
+                io:format("  ~s✓~s  ~ts~n     ~s~s~ts~s~n",
+                          [g(), r(), Url, cy(), b(), Short, r()])
+        end
+    end, Results),
+    io:format("~n").
+
+print_stats(R) ->
+    io:format("~n"),
+    lbl("Code",    maps:get(<<"short_code">>,  R, null)),
+    lbl("URL",     maps:get(<<"long_url">>,    R, null)),
+    lbl("Clicks",  maps:get(<<"click_count">>, R, 0)),
+    lbl("Created", maps:get(<<"created_at">>,  R, null)),
+    lbl("Expires", maps:get(<<"expires_at">>,  R, null)),
+    lbl("Custom",  maps:get(<<"is_custom">>,   R, false)),
+    io:format("~n").
+
+print_preview(R) ->
+    io:format("~n"),
+    lbl("Title",       maps:get(<<"title">>,       R, null)),
+    lbl("Description", maps:get(<<"description">>, R, null)),
+    lbl("OG Image",    maps:get(<<"og_image">>,    R, null)),
+    lbl("URL",         maps:get(<<"long_url">>,    R, null)),
+    lbl("Clicks",      maps:get(<<"click_count">>, R, 0)),
+    io:format("~n").
+
+print_qr(QrUrl) ->
+    io:format("~n  ~s✓~s  QR Code URL~n~n", [g(), r()]),
+    io:format("     ~s~s~ts~s~n~n", [b(), cy(), QrUrl, r()]),
+    io:format("  ~sOpen the URL above in a browser to download the QR image.~s~n~n",
+              [dm(), r()]).
+
+print_admin_stats(R) ->
+    io:format("~n"),
+    lbl("Total URLs",   maps:get(<<"total_urls">>,     R, 0)),
+    lbl("Total Clicks", maps:get(<<"total_clicks">>,   R, 0)),
+    lbl("New Today",    maps:get(<<"new_today">>,      R, 0)),
+    lbl("Top Code",     maps:get(<<"top_short_code">>, R, null)),
+    io:format("~n").
+
+print_admin_list(Urls, Page) ->
+    io:format("~n  ~s~sPage ~w~s  ~s~w results~s~n~n",
+              [b(), cy(), Page, r(), dm(), length(Urls), r()]),
+    Hdr = pad_to("Code", 14) ++ pad_to("Long URL", 33) ++
+          pad_to("Clicks", 9) ++ "Expires",
+    io:format("  ~s~s~s~n", [dm(), Hdr, r()]),
+    io:format("  ~s~s~s~n", [dm(), string:copies("-", 68), r()]),
+    lists:foreach(fun(U) ->
+        Code    = bin_str(maps:get(<<"short_code">>,  U, null)),
+        Long    = truncate(maps:get(<<"long_url">>,   U, <<>>), 30),
+        Clicks  = bin_str(maps:get(<<"click_count">>, U, 0)),
+        Expires = bin_str(maps:get(<<"expires_at">>,  U, null)),
+        io:format("  ~s~n",
+            [pad_to(Code, 14) ++ pad_to(Long, 33) ++
+             pad_to(Clicks, 9) ++ Expires])
+    end, Urls),
+    io:format("~n").
+
+print_analytics(Events, Code) ->
+    io:format("~n  ~s~sAnalytics:~s ~s~s~s  ~s~w events~s~n~n",
+              [b(), cy(), r(), b(), Code, r(), dm(), length(Events), r()]),
+    Hdr = pad_to("IP", 18) ++ pad_to("CC", 7) ++
+          pad_to("City", 18) ++ "Clicked At",
+    io:format("  ~s~s~s~n", [dm(), Hdr, r()]),
+    io:format("  ~s~s~s~n", [dm(), string:copies("-", 60), r()]),
+    lists:foreach(fun(E) ->
+        IP      = bin_str(maps:get(<<"ip">>,         E, null)),
+        Country = bin_str(maps:get(<<"country">>,    E, null)),
+        City    = bin_str(maps:get(<<"city">>,       E, null)),
+        At      = bin_str(maps:get(<<"clicked_at">>, E, null)),
+        io:format("  ~s~n",
+            [pad_to(IP, 18) ++ pad_to(Country, 7) ++ pad_to(City, 18) ++ At])
+    end, Events),
+    io:format("~n").
+
+print_config(Cfg) ->
+    io:format("~n  ~s~sAPI~s~n", [b(), cy(), r()]),
+    lbl("Host",  maps:get(host,  Cfg, "localhost")),
+    lbl("Port",  maps:get(port,  Cfg, 8080)),
+    Token = maps:get(token, Cfg, ""),
+    Masked = case Token of
+        "change_me_in_production" ->
+            dm() ++ "(default -- not configured)" ++ r();
+        T ->
+            Len = length(T),
+            if Len > 8 -> string:substr(T, 1, 4) ++ string:copies("*", Len - 4);
+               true    -> string:copies("*", Len)
+            end
+    end,
+    io:format("  ~s~-16s~s ~ts~n", [dm(), "Token", r(), Masked]),
+    io:format("~n  ~s~sDatabase~s~n", [b(), cy(), r()]),
+    lbl("DB Host", maps:get(db_host, Cfg, "localhost")),
+    lbl("DB Port", maps:get(db_port, Cfg, 5432)),
+    lbl("DB User", maps:get(db_user, Cfg, "postgres")),
+    lbl("DB Name", maps:get(db_name, Cfg, "shortener")),
+    Pass = maps:get(db_pass, Cfg, ""),
+    io:format("  ~s~-16s~s ~s~n",
+              [dm(), "DB Pass", r(), string:copies("*", length(Pass))]),
+    io:format("~n  ~sFile: ~s~s~n~n", [dm(), config_path(), r()]).
